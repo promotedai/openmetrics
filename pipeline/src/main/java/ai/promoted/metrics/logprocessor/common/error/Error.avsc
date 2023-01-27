@@ -1,0 +1,227 @@
+[
+  {
+    "type": "enum",
+    "name": "RecordType",
+    "namespace": "ai.promoted.metrics.common",
+    "symbols": ["USER", "VIEW", "DELIVERY_LOG", "REQUEST", "REQUEST_INSERTION", "EXECUTION_INSERTION", "RESPONSE_INSERTION", "IMPRESSION", "ACTION"]
+  },
+
+  {
+    "type": "enum",
+    "name": "Field",
+    "namespace": "ai.promoted.metrics.common",
+    "symbols": ["MULTIPLE","PLATFORM_ID","LOG_USER_ID", "USER_ID", "SESSION_ID", "VIEW_ID", "REQUEST_ID", "INSERTION_ID", "CONTENT_ID", "IMPRESSION_ID", "ACTION_ID", "CART_CONTENT_QUANTITY", "CART_CONTENT_ID"]
+  },
+
+  {
+    "type": "record",
+    "name": "JoinedIdentifiers",
+    "namespace": "ai.promoted.metrics.common",
+    "fields": [
+      {
+        "name": "platformId",
+        "type": "long",
+        "default": 0
+      },
+      {
+        "name": "logUserId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "sessionId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "viewId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "autoViewId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "requestId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "insertionId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "impressionId",
+        "type": "string",
+        "default": ""
+      }
+    ]
+  },
+
+  {
+    "type": "enum",
+    "name": "ErrorType",
+    "namespace": "ai.promoted.metrics.error",
+    "symbols": ["MISSING_FIELD", "MISSING_JOINABLE_ID", "MISMATCHED_MATRIX_HEADER_LENGTH"]
+  },
+
+  {
+    "type": "record",
+    "name": "Timing",
+    "namespace": "ai.promoted.metrics.common",
+    "fields": [
+      {
+        "name": "clientLogTimestamp",
+        "type": "long",
+        "default": 0
+      },
+      {
+        "name": "eventApiTimestamp",
+        "type": "long",
+        "default": 0
+      },
+      {
+        "name": "logTimestamp",
+        "type": "long",
+        "default": 0
+      }
+    ]
+  },
+
+  {
+    "type": "record",
+    "name": "ValidationError",
+    "namespace": "ai.promoted.metrics.error",
+    "fields": [
+      {
+        "name": "recordType",
+        "type": "ai.promoted.metrics.common.RecordType"
+      },
+      {
+        "name": "errorType",
+        "type": "ai.promoted.metrics.error.ErrorType"
+      },
+      {
+        "name": "platformId",
+        "type": "long",
+        "default": 0
+      },
+      {
+        "name": "logUserId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "viewId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "requestId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "responseInsertionId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "impressionId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "actionId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "timing",
+        "type": "ai.promoted.metrics.common.Timing"
+      },
+      {
+        "name": "field",
+        "type": "ai.promoted.metrics.common.Field"
+      }
+    ]
+  },
+
+  {
+    "type": "enum",
+    "name": "LogFunctionName",
+    "namespace": "ai.promoted.metrics.error",
+    "symbols": [
+      "FLAT_UTIL_SET_FLAT_USER_FLAT_EVENT",
+      "FLAT_UTIL_SET_FLAT_USER_FLAT_RESPONSE_INSERTION",
+      "FLAT_UTIL_SET_FLAT_VIEW",
+      "FLAT_UTIL_SET_FLAT_REQUEST",
+      "FLAT_UTIL_SET_FLAT_REQUEST_INSERTION",
+      "FLAT_UTIL_SET_FLAT_API_EXECUTION_INSERTION",
+      "FLAT_UTIL_SET_FLAT_RESPONSE_INSERTION",
+      "FLAT_UTIL_SET_FLAT_IMPRESSION",
+      "FLAT_UTIL_SET_FLAT_ACTION",
+      "TINY_FLAT_UTIL_MERGE_IMPRESSION",
+      "TINY_FLAT_UTIL_MERGE_ACTION",
+      "TINY_FLAT_UTIL_CREATE_TINY_FLAT_RESPONSE_INSERTIONS"
+    ]
+  },
+
+  {
+    "type": "record",
+    "name": "MismatchError",
+    "namespace": "ai.promoted.metrics.error",
+    "fields": [
+      {
+        "name": "recordType",
+        "type": "ai.promoted.metrics.common.RecordType"
+      },
+      {
+        "name": "field",
+        "type": "ai.promoted.metrics.common.Field"
+      },
+      {
+        "name": "lhsIds",
+        "type": "ai.promoted.metrics.common.JoinedIdentifiers"
+      },
+      {
+        "name": "rhsRecordId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "lhsString",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "rhsString",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "lhsLong",
+        "type": "long",
+        "default": 0
+      },
+      {
+        "name": "rhsLong",
+        "type": "long",
+        "default": 0
+      },
+      {
+        "name": "logTimestamp",
+        "type": "long",
+        "default": 0
+      },
+      {
+        "name": "logFunctionName",
+        "type": "ai.promoted.metrics.error.LogFunctionName"
+      }
+
+    ]
+  }
+]

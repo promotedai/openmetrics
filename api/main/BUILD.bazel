@@ -1,0 +1,71 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("@io_bazel_rules_docker//container:container.bzl", "container_image")
+
+test_srcs = glob(["*_test.go"])
+
+go_library(
+    name = "main_lib",
+    srcs = glob(
+        ["*.go"],
+        exclude = test_srcs,
+    ),
+    importpath = "github.com/promotedai/metrics/api/main",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//api/main/pool",
+        "@com_github_aws_aws_lambda_go//events",
+        "@com_github_aws_aws_lambda_go//lambda",
+        "@com_github_google_uuid//:uuid",
+        "@com_github_hashicorp_go_multierror//:go-multierror",
+        "@com_github_nsf_jsondiff//:go_default_library",
+        "@com_github_promotedai_go_common//apigw:go_default_library",
+        "@com_github_promotedai_schema_internal//proto/common:go_default_library",
+        "@com_github_promotedai_schema_internal//proto/delivery:go_default_library",
+        "@com_github_promotedai_schema_internal//proto/event:go_default_library",
+        "@com_github_segmentio_kafka_go//:kafka-go",
+        "@com_github_sirupsen_logrus//:logrus",
+        "@org_golang_google_protobuf//encoding/protojson:go_default_library",
+        "@org_golang_google_protobuf//proto:go_default_library",
+    ],
+)
+
+go_binary(
+    name = "main",
+    embed = [":main_lib"],
+    goarch = "amd64",
+    goos = "linux",
+    pure = "on",
+    visibility = ["//visibility:public"],
+)
+
+# This is currently only used for local Kubernetes.
+container_image(
+    name = "EventAPI_image",
+    base = "@lambda_go//image",
+    data_path = "/api/main/main_",
+    directory = "/var/task",
+    files = [
+        ":main",
+    ],
+    stamp = True,
+)
+
+go_test(
+    name = "main_test",
+    srcs = glob(test_srcs),
+    embed = [":main_lib"],
+    deps = [
+        "//api/main/pool",
+        "@com_github_aws_aws_lambda_go//events",
+        "@com_github_promotedai_schema_internal//proto/common:go_default_library",
+        "@com_github_promotedai_schema_internal//proto/delivery:go_default_library",
+        "@com_github_promotedai_schema_internal//proto/event:go_default_library",
+        "@com_github_segmentio_kafka_go//:kafka-go",
+        "@com_github_sirupsen_logrus//:logrus",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//mock",
+        "@org_golang_google_protobuf//encoding/protojson:go_default_library",
+        "@org_golang_google_protobuf//proto:go_default_library",
+        "@org_golang_google_protobuf//reflect/protoreflect:go_default_library",
+    ],
+)

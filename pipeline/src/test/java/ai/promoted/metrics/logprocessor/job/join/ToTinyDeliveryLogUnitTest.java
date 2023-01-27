@@ -1,0 +1,224 @@
+package ai.promoted.metrics.logprocessor.job.join;
+
+import ai.promoted.proto.common.Properties;
+import ai.promoted.proto.common.Timing;
+import ai.promoted.proto.common.UserInfo;
+import ai.promoted.proto.delivery.*;
+import ai.promoted.proto.event.CombinedDeliveryLog;
+import ai.promoted.proto.event.TinyDeliveryLog;
+import com.google.common.collect.ImmutableList;
+import com.google.protobuf.Struct;
+import com.google.protobuf.Value;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+public class ToTinyDeliveryLogUnitTest {
+
+  @Test
+  public void map() {
+    DeliveryLog deliveryLog = DeliveryLog.newBuilder()
+            .setPlatformId(1L)
+            .setRequest(Request.newBuilder()
+                    .setPlatformId(1L)
+                    .setUserInfo(UserInfo.newBuilder()
+                            .setLogUserId("logUserId1")
+                            .build())
+                    .setTiming(Timing.newBuilder()
+                            .setLogTimestamp(1))
+                    .setRequestId("req1")
+                    .setViewId("view1"))
+            .setResponse(Response.newBuilder()
+                    .addInsertion(Insertion.newBuilder()
+                            .setInsertionId("ins1")
+                            .setContentId("content1")
+                    ))
+            .build();
+    CombinedDeliveryLog combinedDeliveryLog = CombinedDeliveryLog.newBuilder()
+            .setApi(deliveryLog)
+            .build();
+    assertEquals(
+            TinyDeliveryLog.newBuilder()
+                    .setPlatformId(1L)
+                    .setLogUserId("logUserId1")
+                    .setLogTimestamp(1L)
+                    .setRequestId("req1")
+                    .setViewId("view1")
+                    .addResponseInsertion(TinyDeliveryLog.TinyInsertion.newBuilder()
+                            .setInsertionId("ins1")
+                            .setContentId("content1"))
+                    .build(),
+            new ToTinyDeliveryLog(ImmutableList.of()).map(combinedDeliveryLog));
+  }
+
+  @Test
+  public void mapEmpty() {
+    DeliveryLog deliveryLog = DeliveryLog.getDefaultInstance();
+    CombinedDeliveryLog combinedDeliveryLog = CombinedDeliveryLog.newBuilder()
+            .setApi(deliveryLog)
+            .build();
+    assertEquals(
+            TinyDeliveryLog.getDefaultInstance(),
+            new ToTinyDeliveryLog(ImmutableList.of()).map(combinedDeliveryLog));
+  }
+
+  @Test
+  public void map_insertionProperties() {
+    DeliveryLog deliveryLog = DeliveryLog.newBuilder()
+            .setPlatformId(1L)
+            .setRequest(Request.newBuilder()
+                    .setPlatformId(1L)
+                    .setUserInfo(UserInfo.newBuilder()
+                            .setLogUserId("logUserId1")
+                            .build())
+                    .setTiming(Timing.newBuilder()
+                            .setLogTimestamp(1))
+                    .setRequestId("req1")
+                    .setViewId("view1")
+                    .addInsertion(Insertion.newBuilder()
+                            .setContentId("content1")
+                            .setProperties(Properties.newBuilder()
+                                    .setStruct(Struct.newBuilder()
+                                            .putFields("store", Value.newBuilder().setStringValue("store1").build()))))
+                    // content2 tests if we do not have a Request Insertion.
+                    .addInsertion(Insertion.newBuilder()
+                            .setContentId("content3")
+                            .setProperties(Properties.newBuilder()
+                                    .setStruct(Struct.newBuilder()
+                                            .putFields("owner", Value.newBuilder().setStringValue("owner1").build())
+                                            .putFields("notKeyed", Value.newBuilder().setStringValue("category2").build()))))
+                    .addInsertion(Insertion.newBuilder()
+                            .setContentId("content4")
+                            .setProperties(Properties.newBuilder()
+                                    .setStruct(Struct.newBuilder()
+                                            .putFields("store", Value.newBuilder().setStringValue("store2").build())
+                                            .putFields("owner", Value.newBuilder().setStringValue("owner2").build())))))
+            .setResponse(Response.newBuilder()
+                    .addInsertion(Insertion.newBuilder()
+                            .setInsertionId("ins1")
+                            .setContentId("content1"))
+                    .addInsertion(Insertion.newBuilder()
+                            .setInsertionId("ins2")
+                            .setContentId("content2"))
+                    .addInsertion(Insertion.newBuilder()
+                            .setInsertionId("ins3")
+                            .setContentId("content3"))
+                    .addInsertion(Insertion.newBuilder()
+                            .setInsertionId("ins4")
+                            .setContentId("content4")))
+            .build();
+    CombinedDeliveryLog combinedDeliveryLog = CombinedDeliveryLog.newBuilder()
+            .setApi(deliveryLog)
+            .build();
+    assertEquals(
+            TinyDeliveryLog.newBuilder()
+                    .setPlatformId(1L)
+                    .setLogUserId("logUserId1")
+                    .setLogTimestamp(1L)
+                    .setRequestId("req1")
+                    .setViewId("view1")
+                    .addResponseInsertion(TinyDeliveryLog.TinyInsertion.newBuilder()
+                            .setInsertionId("ins1")
+                            .setContentId("content1")
+                            .putOtherContentIds(109770977, "store1"))
+                    .addResponseInsertion(TinyDeliveryLog.TinyInsertion.newBuilder()
+                            .setInsertionId("ins2")
+                            .setContentId("content2"))
+                    .addResponseInsertion(TinyDeliveryLog.TinyInsertion.newBuilder()
+                            .setInsertionId("ins3")
+                            .setContentId("content3")
+                            .putOtherContentIds(106164915, "owner1"))
+                    .addResponseInsertion(TinyDeliveryLog.TinyInsertion.newBuilder()
+                            .setInsertionId("ins4")
+                            .setContentId("content4")
+                            .putOtherContentIds(106164915, "owner2")
+                            .putOtherContentIds(109770977, "store2"))
+                    .build(),
+            new ToTinyDeliveryLog(ImmutableList.of("store", "owner")).map(combinedDeliveryLog));
+  }
+
+  @Test
+  public void map_requestProperties() {
+    DeliveryLog deliveryLog = DeliveryLog.newBuilder()
+            .setPlatformId(1L)
+            .setRequest(Request.newBuilder()
+                    .setPlatformId(1L)
+                    .setUserInfo(UserInfo.newBuilder()
+                            .setLogUserId("logUserId1")
+                            .build())
+                    .setTiming(Timing.newBuilder()
+                            .setLogTimestamp(1))
+                    .setRequestId("req1")
+                    .setViewId("view1")
+                    .setProperties(Properties.newBuilder()
+                            .setStruct(Struct.newBuilder()
+                                    .putFields("store", Value.newBuilder().setStringValue("store1").build())))
+                    .addInsertion(Insertion.newBuilder()
+                            .setContentId("content1")))
+            .setResponse(Response.newBuilder()
+                    .addInsertion(Insertion.newBuilder()
+                            .setInsertionId("ins1")
+                            .setContentId("content1")))
+            .build();
+    CombinedDeliveryLog combinedDeliveryLog = CombinedDeliveryLog.newBuilder()
+            .setApi(deliveryLog)
+            .build();
+    assertEquals(
+            TinyDeliveryLog.newBuilder()
+                    .setPlatformId(1L)
+                    .setLogUserId("logUserId1")
+                    .setLogTimestamp(1L)
+                    .setRequestId("req1")
+                    .setViewId("view1")
+                    .addResponseInsertion(TinyDeliveryLog.TinyInsertion.newBuilder()
+                            .setInsertionId("ins1")
+                            .setContentId("content1")
+                            .putOtherContentIds(109770977, "store1"))
+                    .build(),
+            new ToTinyDeliveryLog(ImmutableList.of("store", "owner")).map(combinedDeliveryLog));
+  }
+
+  @Test
+  public void map_requestAndInsertionProperties() {
+    DeliveryLog deliveryLog = DeliveryLog.newBuilder()
+            .setPlatformId(1L)
+            .setRequest(Request.newBuilder()
+                    .setPlatformId(1L)
+                    .setUserInfo(UserInfo.newBuilder()
+                            .setLogUserId("logUserId1")
+                            .build())
+                    .setTiming(Timing.newBuilder()
+                            .setLogTimestamp(1))
+                    .setRequestId("req1")
+                    .setViewId("view1")
+                    .setProperties(Properties.newBuilder()
+                            .setStruct(Struct.newBuilder()
+                                    .putFields("store", Value.newBuilder().setStringValue("store1").build())))
+                    .addInsertion(Insertion.newBuilder()
+                            .setContentId("content1")
+                            .setProperties(Properties.newBuilder()
+                                    .setStruct(Struct.newBuilder()
+                                            .putFields("store", Value.newBuilder().setStringValue("store2").build())))))
+            .setResponse(Response.newBuilder()
+                    .addInsertion(Insertion.newBuilder()
+                            .setInsertionId("ins1")
+                            .setContentId("content1")))
+            .build();
+    CombinedDeliveryLog combinedDeliveryLog = CombinedDeliveryLog.newBuilder()
+            .setApi(deliveryLog)
+            .build();
+    assertEquals(
+            TinyDeliveryLog.newBuilder()
+                    .setPlatformId(1L)
+                    .setLogUserId("logUserId1")
+                    .setLogTimestamp(1L)
+                    .setRequestId("req1")
+                    .setViewId("view1")
+                    .addResponseInsertion(TinyDeliveryLog.TinyInsertion.newBuilder()
+                            .setInsertionId("ins1")
+                            .setContentId("content1")
+                            .putOtherContentIds(109770977, "store2"))
+                    .build(),
+            new ToTinyDeliveryLog(ImmutableList.of("store", "owner")).map(combinedDeliveryLog));
+  }
+}

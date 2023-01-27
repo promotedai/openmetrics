@@ -1,0 +1,453 @@
+platform_id: 1
+user_info {
+  user_id: "userId1"
+  log_user_id: "00000000-0000-0000-0000-000000000001"
+}
+timing {
+  client_log_timestamp: 1601596151000
+  event_api_timestamp: 1601596151000
+}
+user {
+  user_info {
+    user_id: "userId1"
+    log_user_id: "00000000-0000-0000-0000-000000000001"
+  }
+  timing {
+    client_log_timestamp: 1601596151000
+    event_api_timestamp: 1601596151000
+  }
+}
+
+platform_id: 1
+user_info {
+  user_id: "userId1"
+  log_user_id: "00000000-0000-0000-0000-000000000001"
+}
+timing {
+  client_log_timestamp: 1601596151000
+  event_api_timestamp: 1601596151000
+}
+cohort_membership {
+  timing {
+    client_log_timestamp: 1601596151000
+    event_api_timestamp: 1601596151000
+  }
+  membership_id: "cccccccc-cccc-cccc-0000-000000000001"
+  cohort_id: "PERSONALIZE_V1"
+  arm: CONTROL
+}
+
+platform_id: 1
+user_info {
+  user_id: "userId1"
+  log_user_id: "00000000-0000-0000-0000-000000000001"
+}
+timing {
+  client_log_timestamp: 1601596151000
+  event_api_timestamp: 1601596151000
+}
+session_profile {
+  timing {
+    client_log_timestamp: 1601596151000
+    event_api_timestamp: 1601596151000
+  }
+  session_id: "11111111-1111-1111-0000-000000000001"
+}
+session {
+  user_info {
+    log_user_id: "00000000-0000-0000-0000-000000000001"
+  }
+  timing {
+    client_log_timestamp: 1601596151000
+    event_api_timestamp: 1601596151000
+  }
+  session_id: "11111111-1111-1111-0000-000000000001"
+}
+
+platform_id: 1
+user_info {
+  user_id: "userId1"
+  log_user_id: "00000000-0000-0000-0000-000000000001"
+}
+timing {
+  client_log_timestamp: 1601596151000
+  event_api_timestamp: 1601596151000
+}
+view {
+  timing {
+    client_log_timestamp: 1601596151000
+    event_api_timestamp: 1601596151000
+  }
+  view_id: "22222222-2222-2222-0000-000000000001"
+  session_id: "11111111-1111-1111-0000-000000000001"
+  name: "All STORE"
+}
+
+platform_id: 1
+user_info {
+  user_id: "userId1"
+  log_user_id: "00000000-0000-0000-0000-000000000001"
+}
+timing {
+  client_log_timestamp: 1601596151000
+  event_api_timestamp: 1601596151000
+}
+delivery_log {
+  request {
+    user_info {
+      user_id: "userId1"
+      log_user_id: "00000000-0000-0000-0000-000000000001"
+    }
+    timing {
+      client_log_timestamp: 1601596151000
+      event_api_timestamp: 1601596151000
+    }
+    client_info {
+      client_type: PLATFORM_SERVER
+      traffic_type: PRODUCTION
+    }
+    request_id: "33333333-3333-3333-0000-000000000001"
+    insertion {
+      content_id: "s-1-1"
+      properties {
+        struct {
+          fields {
+            key: "storeId"
+            value {
+              string_value: "s-1-1"
+            }
+          }
+          fields {
+            key: "type"
+            value {
+              string_value: "STORE"
+            }
+          }
+        }
+      }
+    }
+    client_request_id: "client-33333333-3333-3333-0000-000000000001"
+  }
+  response {
+    insertion {
+      platform_id: 1
+      timing {
+        client_log_timestamp: 1601596151000
+        event_api_timestamp: 1601596151000
+      }
+      insertion_id: "44444444-4444-4444-0000-000000000001"
+      request_id: "33333333-3333-3333-0000-000000000001"
+      content_id: "s-1-1"
+      position: 0
+    }
+  }
+  execution {
+    execution_insertion {
+      platform_id: 1
+      timing {
+        client_log_timestamp: 1601596151000
+        event_api_timestamp: 1601596151000
+      }
+      insertion_id: "44444444-4444-4444-0000-000000000001"
+      request_id: "33333333-3333-3333-0000-000000000001"
+      content_id: "s-1-1"
+      position: 0
+      feature_stage {
+        features {
+          numeric {
+            key: 100
+            value: 0.1
+          }
+        }
+      }
+    }
+    execution_server: API
+  }
+}
+
+platform_id: 1
+user_info {
+  user_id: "userId1"
+  log_user_id: "00000000-0000-0000-0000-000000000001"
+}
+timing {
+  client_log_timestamp: 1601596151000
+  event_api_timestamp: 1601596151000
+}
+auto_view {
+  timing {
+    client_log_timestamp: 1601596151000
+    event_api_timestamp: 1601596151000
+  }
+  auto_view_id: "77777777-7777-7777-0000-000000000001"
+  session_id: "11111111-1111-1111-0000-000000000001"
+}
+
+platform_id: 1
+user_info {
+  user_id: "userId1"
+  log_user_id: "00000000-0000-0000-0000-000000000001"
+}
+timing {
+  client_log_timestamp: 1601596151000
+  event_api_timestamp: 1601596151000
+}
+impression {
+  timing {
+    client_log_timestamp: 1601596151000
+    event_api_timestamp: 1601596151000
+  }
+  impression_id: "55555555-5555-5555-0000-000000000001"
+  content_id: "s-1-1"
+}
+
+platform_id: 1
+user_info {
+  user_id: "userId1"
+  log_user_id: "00000000-0000-0000-0000-000000000001"
+}
+timing {
+  client_log_timestamp: 1601596151000
+  event_api_timestamp: 1601596151000
+}
+diagnostics {
+  timing {
+    client_log_timestamp: 1601596151000
+    event_api_timestamp: 1601596151000
+  }
+  mobile_diagnostics {
+    device_identifier: "abcd-efgh"
+  }
+}
+
+platform_id: 1
+user_info {
+  user_id: "userId1"
+  log_user_id: "00000000-0000-0000-0000-000000000001"
+}
+timing {
+  client_log_timestamp: 1601596151000
+  event_api_timestamp: 1601596151000
+}
+action {
+  timing {
+    client_log_timestamp: 1601596151000
+    event_api_timestamp: 1601596151000
+  }
+  action_id: "66666666-6666-6666-0000-000000000001"
+  action_type: NAVIGATE
+  content_id: "s-1-1"
+}
+
+platform_id: 1
+user_info {
+  user_id: "userId1"
+  log_user_id: "00000000-0000-0000-0000-000000000001"
+}
+timing {
+  client_log_timestamp: 1601596151000
+  event_api_timestamp: 1601596151000
+}
+view {
+  timing {
+    client_log_timestamp: 1601596151000
+    event_api_timestamp: 1601596151000
+  }
+  view_id: "22222222-2222-2222-0000-000000000002"
+  name: "Items for s-1-1"
+  content_id: "s-1-1"
+}
+
+platform_id: 1
+user_info {
+  user_id: "userId1"
+  log_user_id: "00000000-0000-0000-0000-000000000001"
+}
+timing {
+  client_log_timestamp: 1601596151000
+  event_api_timestamp: 1601596151000
+}
+delivery_log {
+  request {
+    user_info {
+      user_id: "userId1"
+      log_user_id: "00000000-0000-0000-0000-000000000001"
+    }
+    timing {
+      client_log_timestamp: 1601596151000
+      event_api_timestamp: 1601596151000
+    }
+    client_info {
+      client_type: PLATFORM_SERVER
+      traffic_type: PRODUCTION
+    }
+    request_id: "33333333-3333-3333-0000-000000000002"
+    insertion {
+      content_id: "i-1-1"
+      properties {
+        struct {
+          fields {
+            key: "itemId"
+            value {
+              string_value: "i-1-1"
+            }
+          }
+          fields {
+            key: "storeId"
+            value {
+              string_value: "s-1-1"
+            }
+          }
+          fields {
+            key: "type"
+            value {
+              string_value: "ITEM"
+            }
+          }
+        }
+      }
+    }
+    client_request_id: "client-33333333-3333-3333-0000-000000000002"
+  }
+  response {
+    insertion {
+      platform_id: 1
+      timing {
+        client_log_timestamp: 1601596151000
+        event_api_timestamp: 1601596151000
+      }
+      insertion_id: "44444444-4444-4444-0000-000000000002"
+      request_id: "33333333-3333-3333-0000-000000000002"
+      content_id: "i-1-1"
+      position: 0
+    }
+  }
+  execution {
+    execution_insertion {
+      platform_id: 1
+      timing {
+        client_log_timestamp: 1601596151000
+        event_api_timestamp: 1601596151000
+      }
+      insertion_id: "44444444-4444-4444-0000-000000000002"
+      request_id: "33333333-3333-3333-0000-000000000002"
+      content_id: "i-1-1"
+      position: 0
+      feature_stage {
+        features {
+          numeric {
+            key: 100
+            value: 0.1
+          }
+        }
+      }
+    }
+    execution_server: API
+  }
+}
+
+platform_id: 1
+user_info {
+  user_id: "userId1"
+  log_user_id: "00000000-0000-0000-0000-000000000001"
+}
+timing {
+  client_log_timestamp: 1601596151000
+  event_api_timestamp: 1601596151000
+}
+
+platform_id: 1
+user_info {
+  user_id: "userId1"
+  log_user_id: "00000000-0000-0000-0000-000000000001"
+}
+timing {
+  client_log_timestamp: 1601596151000
+  event_api_timestamp: 1601596151000
+}
+diagnostics {
+  timing {
+    client_log_timestamp: 1601596151000
+    event_api_timestamp: 1601596151000
+  }
+  mobile_diagnostics {
+    device_identifier: "abcd-efgh"
+  }
+}
+
+platform_id: 1
+user_info {
+  user_id: "userId1"
+  log_user_id: "00000000-0000-0000-0000-000000000001"
+}
+timing {
+  client_log_timestamp: 1601596151000
+  event_api_timestamp: 1601596151000
+}
+action {
+  timing {
+    client_log_timestamp: 1601596151000
+    event_api_timestamp: 1601596151000
+  }
+  action_id: "66666666-6666-6666-0000-000000000003"
+  action_type: ADD_TO_CART
+  content_id: "i-1-1"
+}
+
+platform_id: 1
+user_info {
+  user_id: "userId1"
+  log_user_id: "00000000-0000-0000-0000-000000000001"
+}
+timing {
+  client_log_timestamp: 1601596151000
+  event_api_timestamp: 1601596151000
+}
+action {
+  timing {
+    client_log_timestamp: 1601596151000
+    event_api_timestamp: 1601596151000
+  }
+  action_id: "66666666-6666-6666-0000-000000000004"
+  action_type: CHECKOUT
+  content_id: "i-1-1"
+  cart {
+    contents {
+      content_id: "i-1-1"
+      quantity: 1
+      price_per_unit {
+        currency_code: USD
+        amount_micros: 5000000
+      }
+    }
+  }
+}
+
+platform_id: 1
+user_info {
+  user_id: "userId1"
+  log_user_id: "00000000-0000-0000-0000-000000000001"
+}
+timing {
+  client_log_timestamp: 1601596151000
+  event_api_timestamp: 1601596151000
+}
+action {
+  timing {
+    client_log_timestamp: 1601596151000
+    event_api_timestamp: 1601596151000
+  }
+  action_id: "66666666-6666-6666-0000-000000000005"
+  action_type: PURCHASE
+  content_id: "i-1-1"
+  cart {
+    contents {
+      content_id: "i-1-1"
+      quantity: 1
+      price_per_unit {
+        currency_code: USD
+        amount_micros: 5000000
+      }
+    }
+  }
+}

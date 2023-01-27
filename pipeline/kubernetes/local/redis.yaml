@@ -1,0 +1,21 @@
+# redis config values
+# - disabled auth
+# - standalone (no replicas or sentinels)
+# - don't forget to port forward the master out to actually work!
+architecture: standalone
+auth:
+  enabled: false
+master:
+  containerPorts.redis: 6379
+  persistence:
+    size: 1Gi
+  service.ports.redis: 6379
+  disableCommands: []
+replica:
+  replicaCount: 0
+  containerPorts.redis: 6379
+  persistence:
+    size: 1Gi
+  service.ports.redis: 6379
+sentinel:
+  enabled: false

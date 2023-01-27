@@ -1,0 +1,77 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: counter-job
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      containers:
+      - name: client
+        image: bazel/pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/counter:CounterJob_image
+        env:
+        - name: JOB_MANAGER_RPC_ADDRESS
+          value: jobmanager
+        # If you want to restart from a savepoint, add this after "run" ["-s", "s3a://promoted-event-logs/savepoints/savepoint-{id}"]
+        command: ["flink", "run", "-d", "/opt/CounterJob_deploy.jar"]
+        args: [
+          "--jobLabel=blue",
+          "--s3Bucket=promoted-event-logs",
+          "--sideOutputDebugLogging",
+
+          "--wipe",  ### IMPORTANT: uncomment when backfilling!
+          # reuse local k8s redis instance for local development.  use db nums to keep them distinct.
+          "--counterService=redis://redis-master:6379/10",
+          # for local runs, we always want to see output.
+          "--counterOutputStartTimestamp=1",
+          "--startFromEarliest",
+
+          "--parallelism=1",
+          "--maxParallelism=1",
+
+          # For local development, we want to periodically update the watermark.
+          "--procAndEventWatermarkGenerator",
+          "--watermarkIdlenessProcessingTimeTrailingDuration=PT1M",
+          "--checkpointInterval=PT1M",
+        ]
+        # We use specific mounts so we can map in log4j-cli.properties.
+        # Otherwise, we need to modify the Helm chart directly.
+        # Long-term, we the Flink client jobs should not reuse the config map.
+        volumeMounts:
+        - name: flink-config
+          mountPath: /opt/flink/conf/flink-conf.yaml
+          subPath: flink-conf.yaml
+        - name: flink-config
+          mountPath: /opt/flink/conf/flink-conf-taskmanager.yaml
+          subPath: flink-conf-taskmanager.yaml
+        - name: flink-config
+          mountPath: /opt/flink/conf/log4j.properties
+          subPath: log4j.properties
+        - name: flink-config
+          mountPath: /opt/flink/conf/security.properties
+          subPath: security.properties
+        - name: flink-cli-config
+          mountPath: /opt/flink/conf/log4j-cli.properties
+          subPath: log4j-cli.properties
+      restartPolicy: Never
+      serviceAccountName: ""
+      volumes:
+      - name: flink-config
+        configMap:
+          name: flink-config
+          items:
+            - key: flink-conf.yaml
+              path: flink-conf.yaml
+            - key: flink-conf-taskmanager.yaml
+              path: flink-conf-taskmanager.yaml
+            - key: log4j.properties
+              path: log4j.properties
+            - key: security.properties
+              path: security.properties
+      - name: flink-cli-config
+        configMap:
+          name: flink-cli-config
+          items:
+            - key: log4j-cli.properties
+              path: log4j-cli.properties
+status: {}

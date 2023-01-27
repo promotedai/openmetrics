@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    app: fake-content-generator
+  name: fake-content-generator
+spec:
+  # Delete the job if it has been one day.  It's likely not useful a day later.
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: fake-content-generator
+    spec:
+      containers:
+      - name: fake-content-generator
+        image: bazel/pipeline/src/main/java/ai/promoted/metrics/logprocessor/fakedatagenerator:ContentGenerator_image
+        command: ["java", "-Dlog4j.configurationFile=/log4j.properties", "-jar", "ContentGenerator_deploy.jar"]
+        # Create fewer events for local development.  About 10k insertions, etc.
+        args: [
+            # TODO - fill in with your own local values.
+            # "--contentApiRootUrl=http://ee1a-67-168-60-51.ngrok.io/",
+            # "--contentApiKey=xyz",
+        ]
+        volumeMounts:
+        - name: log-generator-config
+          mountPath: /log4j.properties
+          subPath: log4j.properties
+      restartPolicy: OnFailure
+      serviceAccountName: ""
+      volumes:
+      - name: log-generator-config
+        configMap:
+          name: log-generator-config
+          items:
+            - key: log4j.properties
+              path: log4j.properties
+  backoffLimit: 3
+status: {}

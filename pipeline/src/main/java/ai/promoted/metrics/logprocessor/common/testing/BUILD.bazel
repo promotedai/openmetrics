@@ -1,0 +1,29 @@
+package(default_visibility = ["//src/test:__subpackages__"])
+
+load("@rules_java//java:defs.bzl", "java_library")
+
+java_library(
+    name = "testing",
+    srcs = glob(["*.java"]),
+    visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
+    deps = [
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/avro",
+        "@maven//:com_fasterxml_jackson_core_jackson_databind",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:org_apache_avro_avro",
+        "@maven//:org_apache_avro_avro_protobuf",
+        "@maven//:org_apache_flink_flink_clients_2_12",
+        "@maven//:org_apache_flink_flink_core",
+        "@maven//:org_apache_flink_flink_runtime",
+        "@maven//:org_apache_flink_flink_runtime_tests",
+        "@maven//:org_apache_flink_flink_test_utils_2_12",
+        "@maven//:org_apache_hadoop_hadoop_common",
+        "@maven//:org_apache_logging_log4j_log4j_api",
+        "@maven//:org_apache_logging_log4j_log4j_core",
+        "@maven//:org_apache_parquet_parquet_avro",
+        "@maven//:org_apache_parquet_parquet_hadoop",
+        "@maven//:org_json_json",
+        "@maven//:org_junit_jupiter_junit_jupiter_api",
+    ],
+)

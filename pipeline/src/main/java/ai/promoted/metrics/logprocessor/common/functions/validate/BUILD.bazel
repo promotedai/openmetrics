@@ -1,0 +1,27 @@
+load("@rules_java//java:defs.bzl", "java_library")
+
+java_library(
+    name = "validate",
+    srcs = glob(["*.java"]),
+    visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
+    deps = [
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/error:avro",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions",
+        "@com_github_promotedai_schema_internal_git//proto/common:common_java_proto",
+        "@com_github_promotedai_schema_internal_git//proto/delivery:delivery_java_proto",
+        "@com_github_promotedai_schema_internal_git//proto/event:event_java_proto",
+        "@com_github_promotedai_schema_internal_git//proto/promotion:promotion_java_proto",
+        "@com_github_promotedai_schema_aaa_git//proto/event:event_java_proto",
+        "@com_google_protobuf//:protobuf_java",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:com_google_guava_guava",
+        "@maven_neverlink//:org_apache_flink_flink_core",
+        "@maven_neverlink//:org_apache_flink_flink_java",
+        "@maven//:org_apache_flink_flink_avro",
+        "@maven_neverlink//:org_apache_flink_flink_file_sink_common",
+        "@maven_neverlink//:org_apache_flink_flink_streaming_java_2_12",
+        "@maven//:org_apache_logging_log4j_log4j_api",
+        "@maven//:org_apache_logging_log4j_log4j_core",
+        "@maven//:org_apache_avro_avro",
+    ],
+)

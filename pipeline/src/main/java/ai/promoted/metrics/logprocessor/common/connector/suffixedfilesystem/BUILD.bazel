@@ -1,0 +1,38 @@
+load("@rules_java//java:defs.bzl", "java_binary", "java_library")
+
+# To use the custom sink format, we need to register a Service in META-INF/services.
+# This rule imports a jar (and the java_library will merge the jar META-INF).
+java_import(
+    name = "meta_inf_import",
+    jars = [":meta_inf.jar"],
+)
+
+# Generates a jar containing the correct META-INF.
+genrule(
+    name = "gen_meta_inf",
+    srcs = ["org.apache.flink.table.factories.Factory"],
+    outs = ["meta_inf.jar"],
+    cmd = """
+    mkdir -p META-INF/services
+    cp $< META-INF/services/
+    jar -cf $@ .
+    """,
+)
+
+java_library(
+    name = "suffixedfilesystem",
+    srcs = glob(["*.java"]),
+    visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
+    deps = [
+        ":meta_inf_import",
+        "@com_google_protobuf//:protobuf_java",
+        "@maven_neverlink//:org_apache_flink_flink_core",
+        "@maven//:org_apache_flink_flink_csv",
+        "@maven_neverlink//:org_apache_flink_flink_java",
+        "@maven_neverlink//:org_apache_flink_flink_streaming_java_2_12",
+        "@maven_neverlink//:org_apache_flink_flink_table_uber_2_12",
+        # TODO - switch to neverlink.
+        "@maven//:com_fasterxml_jackson_core_jackson_databind",
+        "@maven//:com_fasterxml_jackson_dataformat_jackson_dataformat_csv",
+    ],
+)

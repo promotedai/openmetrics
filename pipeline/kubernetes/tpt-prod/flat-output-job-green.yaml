@@ -1,0 +1,135 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flat-output-job-green
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      containers:
+      - name: client
+        image: 055315558257.dkr.ecr.us-east-1.amazonaws.com/prm-metrics-flat-output-job:prod-b5100c35
+        imagePullPolicy: "Always"
+        env:
+        - name: JOB_MANAGER_RPC_ADDRESS
+          value: jobmanager
+        command: ["flink", "run", "-d", "/opt/FlatOutputJob_deploy.jar"]
+        args: [
+          "--kafkaSecurityProtocol=SSL",
+          "--bootstrap.servers=b-1.eeeprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:9094,b-2.eeeprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:9094,b-3.eeeprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:9094",
+          "--s3Bucket=eee-prod-event-logs",
+          "--jobLabel=green",
+
+          # See the multipliers for the effective parallelism.
+          "--parallelism=11",
+          # 360 = Dan wanted a number larger than 120 in crease we wanted to scale up past 120 for backfill.
+          "--maxParallelism=360",
+          # Scale these operators differently from parallelism.
+          "--operatorParallelismMultiplier=join-insertion-impressions=7",
+          "--operatorParallelismMultiplier=join-impression-actions=7",
+          "--operatorParallelismMultiplier=reduce-redundant-events=3",
+          # Set to same parallelism so it combines with reduce-redundant-events.
+          "--operatorParallelismMultiplier=filter-tiny-event-to-impression=3",
+          # Set to same parallelism so it combines with reduce-redundant-events.
+          "--operatorParallelismMultiplier=filter-tiny-event-to-action=3",
+          "--operatorParallelismMultiplier=merge-impression-details=7",
+          # Set to same parallelism so it combines with merge-impression-details.
+          "--operatorParallelismMultiplier=clear-user-id-dropped-merge-impression-details=7",
+          # Set to same parallelism so it combines with merge-impression-details.
+          "--operatorParallelismMultiplier=map-joined-impression-to-union-event=7",
+          # Set to same parallelism so it combines with merge-impression-details.
+          "--operatorParallelismMultiplier=filter-out-ignore-usage-joined-impression=7",
+          "--operatorParallelismMultiplier=join-flat-response-insertion=7",
+          # Set to same parallelism so it combines with join-flat-response-insertion.
+          "--operatorParallelismMultiplier=map-left-join-flat-response-insertion=7",
+          # Set to same parallelism so it combines with join-flat-response-insertion.
+          "--operatorParallelismMultiplier=clear-user-id-joined-impressions=7",
+          # Set to same parallelism so it combines with join-flat-response-insertion.
+          "--operatorParallelismMultiplier=filter-out-ignore-usage-flat-response-insertion=7",
+          # Set to same parallelism so it combines with join-flat-response-insertion.
+          "--operatorParallelismMultiplier=clear-user-id-flat-response-insertions=7",
+          "--operatorParallelismMultiplier=combine-delivery-log=5",
+          # Set to same parallelism so it combines with combine-delivery-log.
+          "--operatorParallelismMultiplier=map-tiny-delivery-log=5",
+          # Set to same parallelism so it combines with combine-delivery-log.
+          "--operatorParallelismMultiplier=map-delivery-log-to-union-event=5",
+          "--operatorParallelismMultiplier=join-user-impression=7",
+          "--operatorParallelismMultiplier=merge-action-details=7",
+          # Set to same parallelism so it combines with merge-action-details.
+          "--operatorParallelismMultiplier=clear-user-id-dropped-merge-action-details=7",
+          # Set to same parallelism so it combines with merge-action-details.
+          "--operatorParallelismMultiplier=filter-out-ignore-usage-joined-action=7",
+          "--operatorParallelismMultiplier=join-user-action=3",
+          "--operatorParallelismMultiplier=join-flat-user-response-insertion=7",
+          "--operatorParallelismMultiplier=join-view-responseinsertions=3",
+          "--operatorParallelismMultiplier=join-latest-impressions=5",
+          # Set to same parallelism so it combines with join-latest-impressions.
+          "--operatorParallelismMultiplier=clear-user-id-joined-actions=5",
+
+          # Default sink parallelism is 1.
+          "--defaultSinkParallelism=2",
+          "--operatorParallelismMultiplier=sink-s3-etl-side-debug-all-delivery-log-request=2.5",
+          "--operatorParallelismMultiplier=sink-s3-etl-flat-response-insertion=3",
+          "--operatorParallelismMultiplier=sink-s3-etl-joined-user-impression=3",
+          "--operatorParallelismMultiplier=sink-s3-etl-joined-impression=3",
+          "--operatorParallelismMultiplier=sink-kafka-metrics.blue.default.joined-event=7",
+          "--operatorParallelismMultiplier=sink-kafka-metrics.blue.default.joined-user-event=7",
+          "--operatorParallelismMultiplier=sink-kafka-metrics.green.default.joined-event=7",
+          "--operatorParallelismMultiplier=sink-kafka-metrics.green.default.joined-user-event=7",
+
+          # TODO - remove after the next binary is rolled out.
+          "--viewInsertionJoinMax=PT0S",
+          "--insertionImpressionJoinMax=PT0S",
+          "--impressionActionJoinMax=PT0S",
+          "--combineDeliveryLogWindow=PT1S",
+
+          "--checkpointInterval=PT15M",
+
+          # Backfill
+          # (GMT): Monday, July 25, 2022 12:00:00 AM
+          # This is to speed up the hotfix backfill.
+          # They only started logging all record types on 2022-07-29.  This adds some buffer.
+          # We can delete this on the next blue.
+          "--startFromTimestamp=1658707200000",
+        ]
+        # We use specific mounts so we can map in log4j-cli.properties.
+        # Otherwise, we need to modify the Helm chart directly.
+        # Long-term, we the Flink client jobs should not reuse the config map.
+        volumeMounts:
+        - name: flink-config
+          mountPath: /opt/flink/conf/flink-conf.yaml
+          subPath: flink-conf.yaml
+        - name: flink-config
+          mountPath: /opt/flink/conf/flink-conf-taskmanager.yaml
+          subPath: flink-conf-taskmanager.yaml
+        - name: flink-config
+          mountPath: /opt/flink/conf/log4j.properties
+          subPath: log4j.properties
+        - name: flink-config
+          mountPath: /opt/flink/conf/security.properties
+          subPath: security.properties
+        - name: flink-cli-config
+          mountPath: /opt/flink/conf/log4j-cli.properties
+          subPath: log4j-cli.properties
+      restartPolicy: Never
+      serviceAccountName: ""
+      volumes:
+      - name: flink-config
+        configMap:
+          name: flink-config
+          items:
+            - key: flink-conf.yaml
+              path: flink-conf.yaml
+            - key: flink-conf-taskmanager.yaml
+              path: flink-conf-taskmanager.yaml
+            - key: log4j.properties
+              path: log4j.properties
+            - key: security.properties
+              path: security.properties
+      - name: flink-cli-config
+        configMap:
+          name: flink-cli-config
+          items:
+            - key: log4j-cli.properties
+              path: log4j-cli.properties
+status: {}

@@ -1,0 +1,20 @@
+{
+	"src/main/*Job.java": {
+		"alternate": [
+			"src/test/{dirname}/{basename}JobUnitTest.java",
+			"src/test/{dirname}/{basename}JobMiniclusterTest.java"],
+		"type": "src"
+	},
+	"src/test/*UnitTest.java": {
+		"alternate": [
+			"src/test/{}MiniclusterTest.java",
+			"src/main/{}.java"],
+		"type": "test"
+	},
+	"src/test/*MiniclusterTest.java": {
+		"alternate": [
+			"src/main/{}.java",
+			"src/test/{}UnitTest.java"],
+		"type": "test"
+	}
+}

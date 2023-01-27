@@ -1,0 +1,27 @@
+load("@rules_java//java:defs.bzl", "java_library")
+load("@io_bazel_rules_avro//avro:avro.bzl", "avro_java_library")
+
+avro_java_library(
+    name = "avro",
+    srcs = glob(["*.avsc"]),
+    visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
+    strings = True,
+    # TBD.
+    files_not_dirs = True)
+
+java_library(
+    name = "error",
+    srcs = glob(["*.java"]),
+    visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
+    deps = [
+        ":avro",
+        "@com_github_promotedai_schema_internal_git//proto/event:event_java_proto",
+        "@com_google_protobuf//:protobuf_java",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:org_apache_avro_avro",
+        "@maven//:org_apache_flink_flink_avro",
+        "@maven//:org_apache_flink_flink_core",
+        "@maven//:org_apache_logging_log4j_log4j_api",
+    ],
+)

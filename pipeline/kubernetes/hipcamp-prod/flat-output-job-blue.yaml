@@ -1,0 +1,112 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flat-output-job-blue
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      containers:
+      - name: client
+        image: 055315558257.dkr.ecr.us-east-1.amazonaws.com/prm-metrics-flat-output-job:prod-5f7e372a
+        imagePullPolicy: "Always"
+        env:
+        - name: JOB_MANAGER_RPC_ADDRESS
+          value: jobmanager
+        command: ["flink", "run", "-d", "/opt/FlatOutputJob_deploy.jar"]
+        args: [
+          "--kafkaSecurityProtocol=SSL",
+          "--bootstrap.servers=b-2.ccc-prod-metrics.wil4fb.c12.kafka.us-east-1.amazonaws.com:9094,b-3.ccc-prod-metrics.wil4fb.c12.kafka.us-east-1.amazonaws.com:9094,b-1.ccc-prod-metrics.wil4fb.c12.kafka.us-east-1.amazonaws.com:9094",
+          "--s3Bucket=ccc-prod-event-logs",
+          "--jobLabel=blue",
+
+          # "--startFromEarliest",
+
+          # Some operators have larger parallelism.  See the backfill section.
+          "--parallelism=2",
+          # 360 = Dan wanted a number larger than 120 in crease we wanted to scale up past 120 for backfill.
+          "--maxParallelism=360",
+          # Scale these operators differently from parallelism.
+          "--defaultSinkParallelismMultiplier=0.6",
+          "--operatorParallelismMultiplier=join-insertion-impressions=6",
+          "--operatorParallelismMultiplier=merge-impression-details=6",
+          "--operatorParallelismMultiplier=combine-delivery-log=3",
+          "--operatorParallelismMultiplier=merge-action-details=6",
+          "--operatorParallelismMultiplier=join-user-action=3",
+          "--operatorParallelismMultiplier=join-flat-user-response-insertion=3",
+
+          "--operatorParallelismMultiplier=join-latest-impressions=2",
+          "--operatorParallelismMultiplier=clear-user-id-joined-actions=2",
+
+          # Keep these in sync so we don't have to rebalance to the redis sink.
+          "--operatorParallelismMultiplier=join-user-impression=6",
+          "--operatorParallelismMultiplier=sink-kafka-metrics.blue.default.joined-event=6",
+          "--operatorParallelismMultiplier=sink-kafka-metrics.blue.default.joined-user-event=6",
+          "--operatorParallelismMultiplier=sink-kafka-metrics.green.default.joined-event=6",
+          "--operatorParallelismMultiplier=sink-kafka-metrics.green.default.joined-user-event=6",
+
+          # Content join
+          "--contentApiRootUrl=https://content.ccc.ext.promoted.ai/",
+          "--contentApiSecretName=ccc-prod-content",
+          "--contentIdFieldKeys=land_id",
+          "--region=us-east-1",
+
+          # Buyer filters
+          # User property "is_host" - ccc
+          "--nonBuyerUserSparseHash=6102540093495235004",
+          # User property "is_staff" - ccc
+          "--nonBuyerUserSparseHash=4078401918190321518",
+
+          # ccc's Discover pages are going to call us in a static generator.
+          # At live traffic type, ccc will asynchronously log a DeliveryLog to Promoted.
+          # We'll have slightly longer out of order times until we get traffic.
+          "--viewInsertionJoinMax=PT10S",
+          "--insertionImpressionJoinMax=PT10S",
+          "--impressionActionJoinMax=PT10S",
+          "--combineDeliveryLogWindow=PT1S",
+
+          # Backfill flag
+          # "--checkpointInterval=PT1H",
+          # "--defaultSinkParallelismMultiplier=4",
+        ]
+        # We use specific mounts so we can map in log4j-cli.properties.
+        # Otherwise, we need to modify the Helm chart directly.
+        # Long-term, we the Flink client jobs should not reuse the config map.
+        volumeMounts:
+        - name: flink-config
+          mountPath: /opt/flink/conf/flink-conf.yaml
+          subPath: flink-conf.yaml
+        - name: flink-config
+          mountPath: /opt/flink/conf/flink-conf-taskmanager.yaml
+          subPath: flink-conf-taskmanager.yaml
+        - name: flink-config
+          mountPath: /opt/flink/conf/log4j.properties
+          subPath: log4j.properties
+        - name: flink-config
+          mountPath: /opt/flink/conf/security.properties
+          subPath: security.properties
+        - name: flink-cli-config
+          mountPath: /opt/flink/conf/log4j-cli.properties
+          subPath: log4j-cli.properties
+      restartPolicy: Never
+      serviceAccountName: ""
+      volumes:
+      - name: flink-config
+        configMap:
+          name: flink-config
+          items:
+            - key: flink-conf.yaml
+              path: flink-conf.yaml
+            - key: flink-conf-taskmanager.yaml
+              path: flink-conf-taskmanager.yaml
+            - key: log4j.properties
+              path: log4j.properties
+            - key: security.properties
+              path: security.properties
+      - name: flink-cli-config
+        configMap:
+          name: flink-cli-config
+          items:
+            - key: log4j-cli.properties
+              path: log4j-cli.properties
+status: {}

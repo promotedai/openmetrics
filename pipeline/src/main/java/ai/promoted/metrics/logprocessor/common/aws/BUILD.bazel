@@ -1,0 +1,16 @@
+load("@rules_java//java:defs.bzl", "java_library")
+
+java_library(
+    name = "aws",
+    srcs = glob(["*.java"]),
+    visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
+    deps = [
+        "@maven//:software_amazon_awssdk_bom",
+        "@maven//:software_amazon_awssdk_regions",
+        "@maven//:software_amazon_awssdk_sdk_core",
+        "@maven//:software_amazon_awssdk_secretsmanager",
+        "@maven//:com_google_guava_guava",
+        "@maven//:org_apache_flink_flink_core",
+        "@maven//:org_apache_logging_log4j_log4j_api",
+    ],
+)

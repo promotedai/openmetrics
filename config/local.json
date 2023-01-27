@@ -1,0 +1,8 @@
+{
+  "main": {
+    "KAFKA_DATASET": "aaa-dev",
+    "EVENT_KAFKA_BROKERS": "kafka:9092",
+    "PLATFORM": "aaa",
+    "PLATFORM_ENV": "aaa-dev"
+  }
+}

@@ -1,0 +1,25 @@
+package(default_visibility = ["//src/test:__subpackages__"])
+
+load("//:junit5.bzl", "java_junit5_test")
+
+java_junit5_test(
+    name = "unit_tests",
+    use_testrunner = False,
+    main_class = "com.flexport.bazeljunit5.BazelJUnit5ConsoleLauncher",
+    srcs = glob(["*.java"]),
+    test_package = "ai.promoted.metrics.logprocessor.common.job",
+    timeout = "short",
+    tags = ["exclusive"],
+    deps = [
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/job",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/job/testing",
+        "//pipeline/src/main/java/com/flexport/bazeljunit5",
+        "@com_google_protobuf//java/core",
+        "@maven//:com_google_guava_guava",
+        "@maven//:org_mockito_mockito_core",
+    ],
+    jvm_flags = [
+        "-Dlog4j.configurationFile=resources/log4j2-test.xml",
+    ],
+    resources = ["//pipeline/src/resources:log4j2-test.xml"],
+)

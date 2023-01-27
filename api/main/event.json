@@ -1,0 +1,3 @@
+{
+  "body": "{\"userInfo\": {\"logUserId\": \"1\"},\"timing\": {\"clientLogTimestamp\": \"1596576398000\"},\"deliveryLog\": [{\"request\": {\"requestId\": \"762c952b-9382-4972-a71d-45dd915cb15e\",\"viewId\": \"9f698c41-62c5-4f16-af79-fa1c4fd05d39\"},\"response\": {\"insertion\": [{\"insertionId\": \"f023cfd7-c839-448f-ae08-64bdf7a00500\",\"requestId\": \"762c952b-9382-4972-a71d-45dd915cb15e\",\"contentId\": \"id-1-2\"}]}}]}"
+}

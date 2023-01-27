@@ -1,0 +1,22 @@
+# https://hub.helm.sh/charts/minio/minio
+#
+# https://github.com/minio/charts/blob/master/minio/values.yaml
+
+persistence:
+  size: 10Gi
+
+resources:
+  requests:
+    memory: 256Mi
+
+buckets:
+  - name: promoted-event-logs
+    versioning: false
+    purge: true
+
+mode: standalone
+
+replicas: 1
+
+environment:
+  MINIO_API_SELECT_PARQUET: "on"
