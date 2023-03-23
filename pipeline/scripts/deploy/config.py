@@ -5,8 +5,12 @@ from collections import namedtuple
 # If you update, update the other functions in this file.
 # TODO - rename stream_job_file to k8s_file.
 Config = namedtuple('Config', [
-    # K8s namespace. String. Required.
+    # K8s namespace. String. Optional.
     'namespace',
+    # The source K8s namespace. String. Optional.
+    'source_namespace',
+    # The destination K8s namespace. String. Optional.
+    'target_namespace',
     # Name of the Job. String. Required.
     'job_name',
     # A file path to a K8s config. String. Required.
@@ -32,6 +36,10 @@ Config = namedtuple('Config', [
     defaults=[
         # namespace
         None,
+        # source_namespace
+        None,
+        # target_namespace
+        None,
         # job_name
         None,
         # stream_job_file
@@ -53,9 +61,23 @@ Config = namedtuple('Config', [
 ])
 
 
+def get_source_namespace(config):
+    if config.source_namespace:
+        return config.source_namespace
+    return config.namespace
+
+
+def get_target_namespace(config):
+    if config.target_namespace:
+        return config.target_namespace
+    return config.namespace
+
+
 # Default values that can be reused with other files.
 config_field_types = Config(**{
     'namespace': str,
+    'source_namespace': str,
+    'target_namespace': str,
     'job_name': str,
     'stream_job_file': str,
     'sub_job_type': str,
@@ -81,6 +103,10 @@ def new_config(asdict):
     Returns:
         A new Config with default values filled in.
     """
+    # Fill in the source_namespace and destination_namespace if the combined namespace flag it set.
+    if asdict.get("namespace", "") == "":
+        if asdict.get("source_namespace", "") == "" or asdict.get("target_namespace", "") == "":
+            raise Exception("Either specify --namespace or use both --source-namespace and --target-namespace")
     return default_config._replace(**asdict)
 
 

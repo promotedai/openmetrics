@@ -1,10 +1,12 @@
 load("@rules_java//java:defs.bzl", "java_binary", "java_library")
 
 DEPS = [
-    "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/connector/suffixedfilesystem",
-    "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/format/headeredcsv",
+    "//pipeline/src/main/java/org/apache/flink/connector/file/table:suffixedfilesystem",
+    "//pipeline/src/main/java/org/apache/flink/formats/csv:headeredcsv",
     "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions",
     "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/job",
+    "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/table",
+    "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/util",
     "@com_github_promotedai_schema_internal_git//proto/event:event_java_proto",
     "@com_google_protobuf//:protobuf_java",
     "@maven//:com_google_code_findbugs_jsr305",
@@ -13,11 +15,11 @@ DEPS = [
     "@maven//:info_picocli_picocli",
     "@maven_neverlink//:org_apache_flink_flink_core",
     "@maven//:org_apache_flink_flink_csv",
-    "@maven//:org_apache_flink_flink_connector_kafka_2_12",
-    "@maven//:org_apache_flink_flink_connector_kinesis_2_12",
+    "@maven//:org_apache_flink_flink_connector_kafka",
+    "@maven//:org_apache_flink_flink_connector_kinesis",
     "@maven_neverlink//:org_apache_flink_flink_java",
-    "@maven_neverlink//:org_apache_flink_flink_streaming_java_2_12",
-    "@maven_neverlink//:org_apache_flink_flink_table_uber_2_12",
+    "@maven_neverlink//:org_apache_flink_flink_streaming_java",
+    "@maven_neverlink//:org_apache_flink_flink_table_api_java_uber",
     "@maven//:org_apache_logging_log4j_log4j_api",
     "@maven//:org_apache_logging_log4j_log4j_core",
     "@maven//:com_fasterxml_jackson_core_jackson_databind",
@@ -28,8 +30,8 @@ DEPS = [
 java_library(
     name = "content_metrics_job",
     srcs = glob(["*.java"]),
+    resources = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/contentmetrics/resources"],
     visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
-    resources = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/contentmetrics/resources:resources"],
     deps = DEPS,
 )
 
@@ -38,8 +40,8 @@ java_binary(
     srcs = glob(["*.java"]),
     main_class = "ai.promoted.metrics.logprocessor.job.contentmetrics.ContentMetricsJob",
     visibility = ["//visibility:public"],
-    deps = DEPS,
     runtime_deps = [":content_metrics_job"],
+    deps = DEPS,
 )
 
 load("@io_bazel_rules_docker//container:container.bzl", "container_image")
@@ -51,7 +53,7 @@ container_run_and_commit_layer(
         "apt-get update",
         "apt-get -y upgrade",
         "apt-get clean",
-        "rm -rf /var/lib/apt/lists/*"
+        "rm -rf /var/lib/apt/lists/*",
     ],
     # official Flink image drops permissions in the entrypoint
     docker_run_flags = [
@@ -64,16 +66,16 @@ container_run_and_commit_layer(
 container_image(
     name = "ContentMetricsJob_image",
     base = "@flink//image",
-    layers = [
-        ":os_upgrade"
-    ],
+    cmd = ["ContentMetricsJob_deploy.jar"],
+    data_path = "/pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/contentmetrics",
+    directory = "/opt",
     files = [
         ":ContentMetricsJob_deploy.jar",
     ],
-    directory = "/opt",
-    data_path = "/pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/contentmetrics",
-    cmd = ["ContentMetricsJob_deploy.jar"],
-    # FLINK_VERSION = this needs updating when we increment the Flink version.
-    symlinks = {"/opt/flink/plugins/s3-fs-hadoop/flink-s3-fs-hadoop-1.14.4.jar": "/opt/flink/opt/flink-s3-fs-hadoop-1.14.4.jar"},
+    layers = [
+        ":os_upgrade",
+    ],
     stamp = True,
+    # FLINK_VERSION = this needs updating when we increment the Flink version.
+    symlinks = {"/opt/flink/plugins/s3-fs-hadoop/flink-s3-fs-hadoop-1.16.1.jar": "/opt/flink/opt/flink-s3-fs-hadoop-1.16.1.jar"},
 )

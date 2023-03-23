@@ -8,28 +8,27 @@ import ai.promoted.proto.delivery.Response;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.util.Collector;
 
-/**
- * Converts DeliveryLog to RequestInsertionIds.
- */
+/** Converts DeliveryLog to RequestInsertionIds. */
 class ToResponseInsertionIds implements FlatMapFunction<DeliveryLog, ResponseInsertionIds> {
 
-    @Override
-    public void flatMap(DeliveryLog deliveryLog, Collector<ResponseInsertionIds> collector) {
-        Request request = deliveryLog.getRequest();
-        long platformId = deliveryLog.getPlatformId();
-        long eventApiTimestamp = request.getTiming().getEventApiTimestamp();
-        String requestId = request.getRequestId();
+  @Override
+  public void flatMap(DeliveryLog deliveryLog, Collector<ResponseInsertionIds> collector) {
+    Request request = deliveryLog.getRequest();
+    long platformId = deliveryLog.getPlatformId();
+    long eventApiTimestamp = request.getTiming().getEventApiTimestamp();
+    String requestId = request.getRequestId();
 
-        Response response = deliveryLog.getResponse();
-        for (Insertion insertion : response.getInsertionList()) {
-            collector.collect(ResponseInsertionIds.newBuilder()
-                    .setPlatformId(platformId)
-                    .setEventApiTimestamp(eventApiTimestamp)
-                    .setRequestId(requestId)
-                    .setInsertionId(insertion.getInsertionId())
-                    .setContentId(insertion.getContentId())
-                    .setPosition(insertion.getPosition())
-                    .build());
-        }
+    Response response = deliveryLog.getResponse();
+    for (Insertion insertion : response.getInsertionList()) {
+      collector.collect(
+          ResponseInsertionIds.newBuilder()
+              .setPlatformId(platformId)
+              .setEventApiTimestamp(eventApiTimestamp)
+              .setRequestId(requestId)
+              .setInsertionId(insertion.getInsertionId())
+              .setContentId(insertion.getContentId())
+              .setPosition(insertion.getPosition())
+              .build());
     }
+  }
 }

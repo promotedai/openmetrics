@@ -49,6 +49,7 @@ class DeployJobTest(unittest.TestCase):
         mock_update_existing_job.return_value = "s3://some/path"
         stream_job_config_path = "~/some/k8/config.yaml"
         config = new_config({
+            "namespace": "ns",
             "job_name": "log-user",
             "sub_job_type": "RAW_LOG_USER",
             "stream_job_file": stream_job_config_path,
@@ -72,6 +73,7 @@ class DeployJobTest(unittest.TestCase):
         mock_update_existing_job.return_value = s3_savepoint_path
         stream_job_config_path = "~/some/k8/config.yaml"
         config = new_config({
+            "namespace": "ns",
             "job_name": "log-user",
             "sub_job_type": "RAW_LOG_USER",
             "deploy": False,
@@ -93,6 +95,7 @@ class DeployJobTest(unittest.TestCase):
         mock_get_job_name_to_latest_jobs.return_value = {}
         stream_job_config_path = "~/some/k8/config.yaml"
         config = new_config({
+            "namespace": "ns",
             "job_name": "log-user",
             "sub_job_type": "RAW_LOG_USER",
             "stream_job_file": stream_job_config_path,

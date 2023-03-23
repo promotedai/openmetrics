@@ -12,6 +12,7 @@ DEPS = [
     "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions/userjoin",
     "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions/validate",
     "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/job",
+    "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/job/hudi",
     "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/s3",
     "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/util",
     "@com_github_promotedai_schema_internal_git//proto/delivery:delivery_java_proto",
@@ -22,14 +23,15 @@ DEPS = [
     "@maven//:com_google_protobuf_protobuf_java_util",
     "@maven//:com_twitter_chill_protobuf",
     "@maven//:info_picocli_picocli",
-    "@maven_neverlink//:org_apache_flink_flink_clients_2_12",
+    "@maven_neverlink//:org_apache_flink_flink_clients",
     "@maven//:org_apache_flink_flink_connector_base",
-    "@maven//:org_apache_flink_flink_connector_files",
-    "@maven//:org_apache_flink_flink_connector_kafka_2_12",
+    "@maven_neverlink//:org_apache_flink_flink_connector_files",
+    "@maven//:org_apache_flink_flink_connector_kafka",
     "@maven_neverlink//:org_apache_flink_flink_core",
     "@maven_neverlink//:org_apache_flink_flink_java",
     "@maven_neverlink//:org_apache_flink_flink_file_sink_common",
-    "@maven_neverlink//:org_apache_flink_flink_streaming_java_2_12",
+    "@maven_neverlink//:org_apache_flink_flink_streaming_java",
+    "@maven_neverlink//:org_apache_flink_flink_table_api_java_uber",
     "@maven//:org_apache_logging_log4j_log4j_api",
     "@maven//:org_apache_logging_log4j_log4j_core",
 ]
@@ -59,7 +61,7 @@ container_run_and_commit_layer(
         "apt-get update",
         "apt-get -y upgrade",
         "apt-get clean",
-        "rm -rf /var/lib/apt/lists/*"
+        "rm -rf /var/lib/apt/lists/*",
     ],
     # official Flink image drops permissions in the entrypoint
     docker_run_flags = [
@@ -72,16 +74,16 @@ container_run_and_commit_layer(
 container_image(
     name = "FlatOutputJob_image",
     base = "@flink//image",
-    layers = [
-        ":os_upgrade"
-    ],
+    cmd = ["FlatOutputJob_deploy.jar"],
+    data_path = "/pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/join",
+    directory = "/opt",
     files = [
         ":FlatOutputJob_deploy.jar",
     ],
-    directory = "/opt",
-    data_path = "/pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/join",
-    cmd = ["FlatOutputJob_deploy.jar"],
-    # FLINK_VERSION = this needs updating when we increment the Flink version.
-    symlinks = {"/opt/flink/plugins/s3-fs-hadoop/flink-s3-fs-hadoop-1.14.4.jar": "/opt/flink/opt/flink-s3-fs-hadoop-1.14.4.jar"},
+    layers = [
+        ":os_upgrade",
+    ],
     stamp = True,
+    # FLINK_VERSION = this needs updating when we increment the Flink version.
+    symlinks = {"/opt/flink/plugins/s3-fs-hadoop/flink-s3-fs-hadoop-1.16.1.jar": "/opt/flink/opt/flink-s3-fs-hadoop-1.16.1.jar"},
 )

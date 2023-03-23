@@ -6,9 +6,8 @@ import org.apache.flink.util.OutputTag;
 
 // TODO - add the log file name to the parquet file.
 
-/**
- * A class containing an OutputTag.
- */
+/** A class containing an OutputTag. */
 public final class MismatchErrorTag {
-    public static final OutputTag<MismatchError> TAG = new OutputTag<MismatchError>("mismatch-error", TypeInformation.of(MismatchError.class));
+  public static final OutputTag<MismatchError> TAG =
+      new OutputTag<MismatchError>("mismatch-error", TypeInformation.of(MismatchError.class));
 }

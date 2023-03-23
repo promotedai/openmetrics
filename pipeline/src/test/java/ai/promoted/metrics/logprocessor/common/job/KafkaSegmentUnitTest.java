@@ -1,15 +1,12 @@
 package ai.promoted.metrics.logprocessor.common.job;
 
-import ai.promoted.metrics.logprocessor.common.job.KafkaSegment;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-/**
- * Unit tests (non-minicluster tests).
- */
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+/** Unit tests (non-minicluster tests). */
 public class KafkaSegmentUnitTest {
 
   KafkaSegment segment;
@@ -19,7 +16,8 @@ public class KafkaSegmentUnitTest {
     segment = new KafkaSegment(null);
   }
 
-  // Most of the accessors on OffsetsInitializer are package private or private.  Just make sure the calls pass.
+  // Most of the accessors on OffsetsInitializer are package private or private.  Just make sure the
+  // calls pass.
   @Test
   public void getOffsetsInitializer_noStartFrom() {
     assertNotNull(segment.getOffsetsInitializer(0));

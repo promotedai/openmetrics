@@ -1,3 +1,4 @@
+from deploy.config import get_source_namespace, get_target_namespace
 from deploy.list_jobs_util import wait_for_flink_job
 from deploy.save_jobs_util import async_stop_job, create_modified_kubernetes_config
 from deploy.save_jobs_util import subprocess_kubernetes_delete_then_apply, wait_for_savepoint
@@ -26,7 +27,7 @@ def update_existing_job(job, config):
     # TODO - Detect if the job is regularly restarting.  Make sure the job has been running well for at least X seconds.
 
     job_id = job["jid"]
-    s3_savepoint_path = stop_job(config.namespace, job_id, config.dry_run)
+    s3_savepoint_path = stop_job(get_source_namespace(config), job_id, config.dry_run)
 
     # TODO - improve the logging message between stop and deploy to indicat ehow bad the error is.
     copy_config = config._replace(start_from_savepoint=s3_savepoint_path)
@@ -76,5 +77,5 @@ def create_job_from_savepoint(old_job_id, config):
     tmp_config_path = create_modified_kubernetes_config(config)
 
     dry_run = config.dry_run
-    subprocess_kubernetes_delete_then_apply(config.namespace, tmp_config_path, dry_run)
-    wait_for_flink_job(config.namespace, job_name, old_job_id, dry_run)
+    subprocess_kubernetes_delete_then_apply(get_target_namespace(config), tmp_config_path, dry_run)
+    wait_for_flink_job(get_target_namespace(config), job_name, old_job_id, dry_run)

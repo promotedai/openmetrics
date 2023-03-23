@@ -1,5 +1,5 @@
 import os
-from deploy.config import default_config
+from deploy.config import default_config, get_source_namespace
 from deploy.deploy_new_job import deploy_new_job
 from deploy.deploy_updated_job import create_job_from_savepoint, update_existing_job
 from deploy.list_jobs_util import get_job_name_to_latest_jobs, is_stopped
@@ -29,7 +29,6 @@ def deploy_job(config):
     """Deploys a single job type.
 
     Args:
-        namespace: The k8s namespace.
         config: The config.
 
     Returns:
@@ -39,7 +38,7 @@ def deploy_job(config):
     print("\n## deploy_job - %s" % job_name)
     print('\nCommand: deploy_job(%s)' % (str(config)))
     # Refetch all jobs so we can get the latest state.
-    job_name_to_latest_job = get_job_name_to_latest_jobs(config.namespace)
+    job_name_to_latest_job = get_job_name_to_latest_jobs(get_source_namespace(config))
     job = job_name_to_latest_job.get(job_name, None)
 
     # TODO - what about combining start_from_savepoint with new=False or deploy=True?

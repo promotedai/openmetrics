@@ -1,0 +1,14 @@
+load("@rules_java//java:defs.bzl", "java_library", "java_plugin")
+
+java_library(
+    name = "protobuf_to_row",
+    srcs = glob(["*.java"]),
+    visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
+    deps = [
+        "@com_google_protobuf//:protobuf_java",
+        "@maven//:org_apache_logging_log4j_log4j_api",
+        "@maven//:org_apache_flink_flink_protobuf",
+        "@maven_neverlink//:org_apache_flink_flink_table_runtime",
+        "@maven_neverlink//:org_apache_flink_flink_table_api_java_uber",
+    ],
+)

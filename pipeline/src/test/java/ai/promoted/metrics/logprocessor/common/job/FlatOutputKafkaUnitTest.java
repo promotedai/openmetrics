@@ -1,15 +1,11 @@
 package ai.promoted.metrics.logprocessor.common.job;
 
-import ai.promoted.metrics.logprocessor.common.job.FlatOutputKafka;
-import ai.promoted.metrics.logprocessor.common.job.KafkaSegment;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-
-/**
- * Unit tests (non-minicluster tests).
- */
+/** Unit tests (non-minicluster tests). */
 public class FlatOutputKafkaUnitTest {
 
   FlatOutputKafka segment;
@@ -26,20 +22,11 @@ public class FlatOutputKafkaUnitTest {
   }
 
   @Test
-  public void getFlatUserEventTopic() {
-    assertEquals("metrics.default.joined-user-event", segment.getJoinedUserEventTopic(""));
-    assertEquals("metrics.blue.default.joined-user-event", segment.getJoinedUserEventTopic("blue"));
-  }
-
-  @Test
   public void getFlatResponseInsertionTopic() {
-    assertEquals("metrics.default.flat-response-insertion", segment.getFlatResponseInsertionTopic(""));
-    assertEquals("metrics.blue.default.flat-response-insertion", segment.getFlatResponseInsertionTopic("blue"));
-  }
-
-  @Test
-  public void getFlatUserResponseInsertionTopic() {
-    assertEquals("metrics.default.flat-user-response-insertion", segment.getFlatUserResponseInsertionTopic(""));
-    assertEquals("metrics.blue.default.flat-user-response-insertion", segment.getFlatUserResponseInsertionTopic("blue"));
+    assertEquals(
+        "metrics.default.flat-response-insertion", segment.getFlatResponseInsertionTopic(""));
+    assertEquals(
+        "metrics.blue.default.flat-response-insertion",
+        segment.getFlatResponseInsertionTopic("blue"));
   }
 }

@@ -1,0 +1,77 @@
+load("@rules_java//java:defs.bzl", "java_binary", "java_library")
+
+DEPS = [
+    "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/avro",
+    "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions",
+    "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/job",
+    "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/s3",
+    "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/fixschema/model:avro",
+    "@com_github_promotedai_schema_internal_git//proto/event:event_java_proto",
+    "@com_google_protobuf//:protobuf_java",
+    "@maven//:com_google_code_findbugs_jsr305",
+    "@maven//:com_google_guava_guava",
+    "@maven//:com_google_protobuf_protobuf_java_util",
+    "@maven//:info_picocli_picocli",
+    "@maven_neverlink//:org_apache_flink_flink_connector_files",
+    "@maven_neverlink//:org_apache_flink_flink_core",
+    "@maven_neverlink//:org_apache_flink_flink_java",
+    "@maven_neverlink//:org_apache_flink_flink_streaming_java",
+    "@maven_neverlink//:org_apache_flink_flink_file_sink_common",
+    "@maven//:org_apache_avro_avro",
+    "@maven//:org_apache_flink_flink_avro",
+    "@maven//:org_apache_flink_flink_table_api_java_uber",
+    "@maven//:org_apache_logging_log4j_log4j_api",
+    "@maven//:org_apache_logging_log4j_log4j_core",
+]
+
+# For tests
+java_library(
+    name = "fixschema_job",
+    srcs = glob(["*.java"]),
+    visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
+    deps = DEPS,
+)
+
+java_binary(
+    name = "FixSchemaJob",
+    srcs = glob(["*.java"]),
+    main_class = "ai.promoted.metrics.logprocessor.job.fixschema.FixSchemaJob",
+    visibility = ["//visibility:public"],
+    deps = DEPS,
+)
+
+load("@io_bazel_rules_docker//container:container.bzl", "container_image")
+load("@io_bazel_rules_docker//docker/util:run.bzl", "container_run_and_commit_layer")
+
+container_run_and_commit_layer(
+    name = "os_upgrade",
+    commands = [
+        "apt-get update",
+        "apt-get -y upgrade",
+        "apt-get clean",
+        "rm -rf /var/lib/apt/lists/*",
+    ],
+    # official Flink image drops permissions in the entrypoint
+    docker_run_flags = [
+        "--entrypoint",
+        "/usr/bin/env",
+    ],
+    image = "@flink//image",
+)
+
+container_image(
+    name = "FixSchemaJob_image",
+    base = "@flink//image",
+    cmd = ["FixSchemaJob_deploy.jar"],
+    data_path = "/pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/fixschema",
+    directory = "/opt",
+    files = [
+        ":FixSchemaJob_deploy.jar",
+    ],
+    layers = [
+        ":os_upgrade",
+    ],
+    stamp = True,
+    # FLINK_VERSION = this needs updating when we increment the Flink version.
+    symlinks = {"/opt/flink/plugins/s3-fs-hadoop/flink-s3-fs-hadoop-1.16.1.jar": "/opt/flink/opt/flink-s3-fs-hadoop-1.16.1.jar"},
+)

@@ -15,21 +15,22 @@ import org.apache.flink.util.Collector;
  */
 public class ValidateUser extends BaseValidate<User> {
 
-    @Override
-    public void processElement(User user, ProcessFunction<User, User>.Context ctx, Collector<User> out) throws Exception {
-        ImmutableList.Builder<ValidationError> errors = ImmutableList.builder();
-        if (user.getUserInfo().getUserId().isEmpty()) {
-            errors.add(createError(user, ErrorType.MISSING_FIELD, Field.USER_ID));
-        }
-        outputErrorsOrRecord(user, errors, ctx, out);
+  @Override
+  public void processElement(
+      User user, ProcessFunction<User, User>.Context ctx, Collector<User> out) throws Exception {
+    ImmutableList.Builder<ValidationError> errors = ImmutableList.builder();
+    if (user.getUserInfo().getUserId().isEmpty()) {
+      errors.add(createError(user, ErrorType.MISSING_FIELD, Field.USER_ID));
     }
+    outputErrorsOrRecord(user, errors, ctx, out);
+  }
 
-    @Override
-    protected ValidationError.Builder createBaseErrorBuilder(User user) {
-        return ValidationError.newBuilder()
-                .setRecordType(RecordType.USER)
-                .setPlatformId(user.getPlatformId())
-                .setLogUserId(user.getUserInfo().getLogUserId())
-                .setTiming(toAvro(user.getTiming()));
-    }
+  @Override
+  protected ValidationError.Builder createBaseErrorBuilder(User user) {
+    return ValidationError.newBuilder()
+        .setRecordType(RecordType.USER)
+        .setPlatformId(user.getPlatformId())
+        .setLogUserId(user.getUserInfo().getLogUserId())
+        .setTiming(toAvro(user.getTiming()));
+  }
 }

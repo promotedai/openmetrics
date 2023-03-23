@@ -1,0 +1,25 @@
+load("@rules_java//java:defs.bzl", "java_library", "java_plugin")
+
+java_library(
+    name = "hudi",
+    srcs = glob(["*.java"]),
+    visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
+    deps = [
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/avro",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/job",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/job/hudi/shade:promoted_hudi_flink",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/table",
+        "@com_google_protobuf//:protobuf_java",
+        "@maven//:info_picocli_picocli",
+        "@maven//:org_apache_hadoop_hadoop_aws",  # TODO remove this once switch to Flink application mode
+        "@maven//:org_apache_hadoop_hadoop_common",
+        "@maven//:org_apache_hive_hive_common",
+        "@maven//:org_apache_hive_hive_exec",
+        "@maven//:org_apache_logging_log4j_log4j_api",
+        "@maven_neverlink//:com_google_code_findbugs_jsr305",
+        "@maven_neverlink//:org_apache_flink_flink_core",
+        "@maven_neverlink//:org_apache_flink_flink_streaming_java",
+        "@maven_neverlink//:org_apache_flink_flink_table_api_java_uber",
+        "@maven_neverlink//:org_apache_flink_flink_table_runtime",
+    ],
+)

@@ -1,0 +1,9 @@
+load("@rules_java//java:defs.bzl", "java_library")
+load("@io_bazel_rules_avro//avro:avro.bzl", "avro_java_library")
+
+avro_java_library(
+    name = "avro",
+    srcs = glob(["*.avsc"]),
+    visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
+    strings = True,
+    files_not_dirs = True)

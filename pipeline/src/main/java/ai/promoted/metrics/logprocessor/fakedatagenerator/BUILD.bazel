@@ -9,7 +9,6 @@ DEPS = [
     "@com_github_promotedai_schema_internal_git//proto/common:common_java_proto",
     "@com_github_promotedai_schema_internal_git//proto/event:event_java_proto",
     "@com_github_promotedai_schema_internal_git//proto/promotion:promotion_java_proto",
-    "@com_github_promotedai_schema_aaa_git//proto/event:event_java_proto",
     "@com_google_protobuf//:protobuf_java",
     "@maven//:com_fasterxml_jackson_core_jackson_core",
     "@maven//:com_fasterxml_jackson_core_jackson_databind",
