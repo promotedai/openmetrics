@@ -1,16 +1,13 @@
 package ai.promoted.metrics.logprocessor.common.job;
 
-import ai.promoted.metrics.logprocessor.common.job.ContentApiSegment;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-
-/**
- * Unit tests (non-minicluster tests).
- */
+/** Unit tests (non-minicluster tests). */
 public class ContentApiSegmentUnitTest {
 
   ContentApiSegment segment;

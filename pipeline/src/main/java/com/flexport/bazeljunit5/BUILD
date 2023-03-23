@@ -16,5 +16,6 @@ java_library(
     deps = [
         "@maven//:org_junit_platform_junit_platform_commons",
         "@maven//:org_junit_platform_junit_platform_console",
+        "@maven//:com_twitter_chill_2_12",
     ],
 )

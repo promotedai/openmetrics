@@ -8,7 +8,7 @@
  * http://www.eclipse.org/legal/epl-v20.html
  */
 
-// This was forked from 
+// This was forked from
 // https://github.com/asinbow/junit5-samples/blob/open-source-BazelJUnit5ConsoleLauncher/junit5-jupiter-starter-bazel/bazeljunit5/src/main/java/com/flexport/bazeljunit5/BazelJUnit5ConsoleLauncher.java
 
 package com.flexport.bazeljunit5;
@@ -23,7 +23,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
-
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
@@ -32,7 +31,6 @@ import javax.xml.transform.TransformerException;
 import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
-
 import org.junit.platform.commons.util.ReflectionUtils;
 import org.junit.platform.console.ConsoleLauncher;
 import org.w3c.dom.Document;
@@ -41,9 +39,7 @@ import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import org.xml.sax.SAXException;
 
-/**
- * A ConsoleLauncher to transform a test into JUnit5 fashion for Bazel.
- */
+/** A ConsoleLauncher to transform a test into JUnit5 fashion for Bazel. */
 public class BazelJUnit5ConsoleLauncher {
 
   private static final String SELECT_PACKAGE = "--select-package";
@@ -55,9 +51,7 @@ public class BazelJUnit5ConsoleLauncher {
   // https://github.com/junit-team/junit5/blob/37e0f559277f0065f8057cc465a1e8eb91563af6/junit-platform-reporting/src/main/java/org/junit/platform/reporting/legacy/xml/LegacyXmlReportGeneratingListener.java#L116
   private static final String XML_OUTPUT_FILE_PATTERN = "^TEST-.*\\.xml$";
 
-  /**
-   * Transform args and invoke the real implementation.
-   */
+  /** Transform args and invoke the real implementation. */
   public static void main(String... args) {
     int exitCode =
         ConsoleLauncher.execute(System.out, System.err, transformArgs(args)).getExitCode();
@@ -66,9 +60,7 @@ public class BazelJUnit5ConsoleLauncher {
     System.exit(exitCode);
   }
 
-  /**
-   * Move the generated reports to where they should be.
-   */
+  /** Move the generated reports to where they should be. */
   public static void afterExecute(int exitCode) {
     fixXmlOutputFile(System.getenv("XML_OUTPUT_FILE"));
   }
@@ -97,9 +89,9 @@ public class BazelJUnit5ConsoleLauncher {
   }
 
   /**
-   * Merges multiple JUnit test result xmls into a single one by grouping <testsuite> from individual
-   * files under <testsuites> in the final output file. Useful if ConsoleLauncher generates test result
-   * xmls for both 'JUnit Jupiter' and 'JUnit Vintage'
+   * Merges multiple JUnit test result xmls into a single one by grouping <testsuite> from
+   * individual files under <testsuites> in the final output file. Useful if ConsoleLauncher
+   * generates test result xmls for both 'JUnit Jupiter' and 'JUnit Vintage'
    */
   private static Document mergeTestResultXmls(File[] files)
       throws ParserConfigurationException, IOException, SAXException {
@@ -110,8 +102,8 @@ public class BazelJUnit5ConsoleLauncher {
       xmlDocuments.add(xmlDocument);
     }
 
-    Document mergedXmlOutput = DocumentBuilderFactory.newInstance().newDocumentBuilder()
-        .newDocument();
+    Document mergedXmlOutput =
+        DocumentBuilderFactory.newInstance().newDocumentBuilder().newDocument();
     Element rootElement = mergedXmlOutput.createElement("testsuites");
     mergedXmlOutput.appendChild(rootElement);
 
@@ -136,15 +128,15 @@ public class BazelJUnit5ConsoleLauncher {
 
   /**
    * Having parentheses in the test case names seems to cause issues in IntelliJ - `jump to source`
-   * doesn't work in test explorer. This method simply trims everything following the test method name.
+   * doesn't work in test explorer. This method simply trims everything following the test method
+   * name.
    */
   private static void removeParenthesesFromTestCaseNames(Document document) {
     NodeList nodeList = document.getElementsByTagName("testcase");
     for (int i = 0; i < nodeList.getLength(); i++) {
       Node node = nodeList.item(i);
       Node nameAttribute = node.getAttributes().getNamedItem("name");
-      String testCaseName =
-          nameAttribute.getNodeValue().split("\\(")[0];
+      String testCaseName = nameAttribute.getNodeValue().split("\\(")[0];
 
       // Appends display name to test case name in the case of parameterized tests (a bit hacky)
       String testDisplayName = getTestCaseDisplayName(node);
@@ -168,16 +160,20 @@ public class BazelJUnit5ConsoleLauncher {
   }
 
   /**
-   * Every <testcase> node in the xml has a <system-out> node which has some additional info including
-   * a friendly 'display-name'. This is useful especially for parameterized tests to show the params used
-   * in individual runs of the test-case.
+   * Every <testcase> node in the xml has a <system-out> node which has some additional info
+   * including a friendly 'display-name'. This is useful especially for parameterized tests to show
+   * the params used in individual runs of the test-case.
    */
   private static String getTestCaseDisplayName(Node testCase) {
-    String systemOutText = ((Element) testCase).getElementsByTagName("system-out").item(0)
-        .getFirstChild().getNodeValue();
+    String systemOutText =
+        ((Element) testCase)
+            .getElementsByTagName("system-out")
+            .item(0)
+            .getFirstChild()
+            .getNodeValue();
     final String displayNameTag = "display-name:";
-    String displayName = systemOutText
-        .substring(systemOutText.indexOf(displayNameTag) + displayNameTag.length());
+    String displayName =
+        systemOutText.substring(systemOutText.indexOf(displayNameTag) + displayNameTag.length());
     displayName = displayName.replaceAll("\\(,\\)", "");
     return displayName;
   }
@@ -190,14 +186,12 @@ public class BazelJUnit5ConsoleLauncher {
     transformer.transform(source, streamResult);
   }
 
-  /**
-   * Transform args into JUnit5 fashion.
-   */
+  /** Transform args into JUnit5 fashion. */
   public static String[] transformArgs(String[] args) {
     return transformArgsForXmlOutputFile(
-        transformArgsForTestBridgeTestOnly(
-            Arrays.asList(args), System.getenv("TESTBRIDGE_TEST_ONLY")),
-        System.getenv("XML_OUTPUT_FILE"))
+            transformArgsForTestBridgeTestOnly(
+                Arrays.asList(args), System.getenv("TESTBRIDGE_TEST_ONLY")),
+            System.getenv("XML_OUTPUT_FILE"))
         .stream()
         .toArray(String[]::new);
   }
@@ -280,13 +274,15 @@ public class BazelJUnit5ConsoleLauncher {
           throw new IllegalStateException(e);
         }
 
-        parsedOptions.addAll(Arrays.stream(klass.getDeclaredMethods())
-            .filter(method -> methodNames.contains(method.getName()))
-            .map(
-                method ->
-                    SELECT_METHOD + "=" + ReflectionUtils
-                        .getFullyQualifiedMethodName(klass, method))
-            .collect(Collectors.toList()));
+        parsedOptions.addAll(
+            Arrays.stream(klass.getDeclaredMethods())
+                .filter(method -> methodNames.contains(method.getName()))
+                .map(
+                    method ->
+                        SELECT_METHOD
+                            + "="
+                            + ReflectionUtils.getFullyQualifiedMethodName(klass, method))
+                .collect(Collectors.toList()));
       }
 
       return parsedOptions;
@@ -302,16 +298,19 @@ public class BazelJUnit5ConsoleLauncher {
   }
 
   /**
-   * bazel --test_filter seems to pass multiple method names in different ways
-   * 1. method1,method2,method3
-   * 2. (method1|method2|method3)
-   * <p>
-   * Also in the case of parameterized tests, split on whitespace, '[' or '\' to get only the method name.
+   * bazel --test_filter seems to pass multiple method names in different ways 1.
+   * method1,method2,method3 2. (method1|method2|method3)
+   *
+   * <p>Also in the case of parameterized tests, split on whitespace, '[' or '\' to get only the
+   * method name.
    */
   private static HashSet<String> getMethodNames(String testFilterMethodsSubstring) {
     testFilterMethodsSubstring = testFilterMethodsSubstring.replace("(", "").replace(")", "");
-    HashSet<String> methodNames = Arrays.stream(testFilterMethodsSubstring.split("[,|]")).distinct()
-        .map(s -> s.split("[ \\[\\\\]")[0]).collect(Collectors.toCollection(HashSet::new));
+    HashSet<String> methodNames =
+        Arrays.stream(testFilterMethodsSubstring.split("[,|]"))
+            .distinct()
+            .map(s -> s.split("[ \\[\\\\]")[0])
+            .collect(Collectors.toCollection(HashSet::new));
     return methodNames;
   }
 

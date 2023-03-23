@@ -178,20 +178,20 @@ def get_metrics_table_names():
         "auto_view",
         "cohort_membership",
         "daily_content_metrics",
+        "daily_content_query_joined_metrics",
         "delivery_log",
         "diagnostics",
+        "flat_actioned_response_insertion",
         "flat_response_insertion",
-        "flat_user_response_insertion",
         "hourly_content_metrics",
         "impression",
         "joined_action",
         "joined_impression",
-        "joined_user_action",
-        "joined_user_impression",
         "log_request",
         "log_user_user",
         "user",
         "view",
+        "weekly_content_query_joined_metrics",
     ]
 
 

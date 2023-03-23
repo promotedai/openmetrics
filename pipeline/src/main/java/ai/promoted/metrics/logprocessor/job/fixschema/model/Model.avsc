@@ -1,0 +1,125 @@
+[
+  {
+    "type": "record",
+    "name": "RecursiveValue",
+    "doc": "A record for testing data fix",
+    "namespace": "ai.promoted.metrics.datafix",
+    "fields": [
+      {
+        "name": "value",
+        "type": ["null", "RecursiveValue"],
+        "default": null
+      },
+      {
+        "name": "stringValue",
+        "type": "string",
+        "default": ""
+      }
+    ]
+  },
+
+  {
+    "type": "record",
+    "name": "Value3",
+    "doc": "A record for testing data fix",
+    "namespace": "ai.promoted.metrics.datafix",
+    "fields": [
+      {
+        "name": "stringValue",
+        "type": "string",
+        "default": ""
+      }
+    ]
+  },
+
+  {
+    "type": "record",
+    "name": "Value2",
+    "doc": "A record for testing data fix",
+    "namespace": "ai.promoted.metrics.datafix",
+    "fields": [
+      {
+        "name": "value",
+        "type": ["null", "Value3"],
+        "default": null
+      },
+      {
+        "name": "stringValue",
+        "type": "string",
+        "default": ""
+      }
+    ]
+  },
+
+  {
+    "type": "record",
+    "name": "Value1",
+    "doc": "A record for testing data fix",
+    "namespace": "ai.promoted.metrics.datafix",
+    "fields": [
+      {
+        "name": "value",
+        "type": ["null", "Value2"],
+        "default": null
+      },
+      {
+        "name": "stringValue",
+        "type": "string",
+        "default": ""
+      }
+    ]
+  },
+
+  {
+    "type": "record",
+    "name": "TestRecord1",
+    "doc": "A record for testing data fix",
+    "namespace": "ai.promoted.metrics.datafix",
+    "fields": [
+      {
+        "name": "platformId",
+        "type": "long",
+        "default": 0
+      },
+      {
+        "name": "eventApiTimestamp",
+        "type": "long",
+        "default": 0
+      },
+      {
+        "name": "value",
+        "type": ["null", "RecursiveValue"],
+        "default": null
+      }
+    ]
+  },
+
+  {
+    "type": "record",
+    "name": "TestRecord2",
+    "doc": "A record for testing data fix",
+    "namespace": "ai.promoted.metrics.datafix",
+    "fields": [
+      {
+        "name": "platformId",
+        "type": "long",
+        "default": 0
+      },
+      {
+        "name": "eventApiTimestamp",
+        "type": "long",
+        "default": 0
+      },
+      {
+        "name": "newTestField",
+        "type": "long",
+        "default": 0
+      },
+      {
+        "name": "value",
+        "type": ["null", "Value1"],
+        "default": null
+      }
+    ]
+  }
+]

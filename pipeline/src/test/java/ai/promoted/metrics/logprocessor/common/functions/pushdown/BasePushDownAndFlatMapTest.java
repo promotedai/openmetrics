@@ -2,22 +2,10 @@ package ai.promoted.metrics.logprocessor.common.functions.pushdown;
 
 import ai.promoted.proto.common.ClientInfo;
 import ai.promoted.proto.common.Timing;
-import ai.promoted.proto.common.UserInfo;
-import ai.promoted.proto.delivery.Insertion;
-import ai.promoted.proto.delivery.Request;
-import ai.promoted.proto.event.Action;
-import ai.promoted.proto.event.Impression;
 import ai.promoted.proto.event.LogRequest;
-import ai.promoted.proto.event.Session;
-import ai.promoted.proto.event.SessionProfile;
-import ai.promoted.proto.event.User;
-import ai.promoted.proto.event.View;
-import org.apache.flink.util.Collector;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
 import java.util.ArrayList;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 
 public class BasePushDownAndFlatMapTest<T> {
 
@@ -40,21 +28,18 @@ public class BasePushDownAndFlatMapTest<T> {
   static final String ACTION_ID = "actionId1";
   static final String SURFACE_NAME = "search";
 
-  static final ClientInfo CLIENT_INFO = ClientInfo.newBuilder()
+  static final ClientInfo CLIENT_INFO =
+      ClientInfo.newBuilder()
           .setTrafficType(ClientInfo.TrafficType.PRODUCTION)
           .setClientType(ClientInfo.ClientType.PLATFORM_SERVER)
           .build();
 
   static Timing createTiming(long timestamp) {
-    return Timing.newBuilder()
-            .setClientLogTimestamp(timestamp)
-            .build();
+    return Timing.newBuilder().setClientLogTimestamp(timestamp).build();
   }
 
   static LogRequest.Builder setBaseFields(LogRequest.Builder builder) {
-    return builder
-            .setPlatformId(PLATFORM_ID)
-            .setTiming(createTiming(TIME_EPOCH_MILLIS));
+    return builder.setPlatformId(PLATFORM_ID).setTiming(createTiming(TIME_EPOCH_MILLIS));
   }
 
   List<T> collector;

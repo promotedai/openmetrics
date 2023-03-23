@@ -1,49 +1,42 @@
 package ai.promoted.metrics.logprocessor.common.functions.sink;
 
-import com.google.auto.value.AutoValue;
 import io.lettuce.core.ClientOptions;
-import io.lettuce.core.FlushMode;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.api.StatefulRedisConnection;
-import io.lettuce.core.cluster.api.sync.RedisClusterCommands;
 import io.lettuce.core.cluster.api.async.RedisClusterAsyncCommands;
-import io.lettuce.core.protocol.CommandType;
-import org.apache.flink.api.java.tuple.Tuple;
-import org.apache.flink.configuration.Configuration;
-import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
+import io.lettuce.core.cluster.api.sync.RedisClusterCommands;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.StringJoiner;
-
 /** Sink for non-clustered Redis instances. */
 public class RedisStandaloneSink extends RedisSink {
-    private static final Logger LOGGER = LogManager.getLogger(RedisStandaloneSink.class);
+  private static final Logger LOGGER = LogManager.getLogger(RedisStandaloneSink.class);
 
-    /** Constructs a redis sink hitting address (e.g. 'redis://localhost:6399/0') */
-    public RedisStandaloneSink(String address) {
-        super(address);
-    }
+  /** Constructs a redis sink hitting address (e.g. 'redis://localhost:6399/0') */
+  public RedisStandaloneSink(String address) {
+    super(address);
+  }
 
-    @Override
-    public void initConnection() {
-        LOGGER.info("Opening standalone redis connection to {}", uri);
-        RedisClient redisClient = RedisClient.create(uri);
-        // We want to loudly fail in order to alert.
-        redisClient.setOptions(ClientOptions.builder()
-                .disconnectedBehavior(ClientOptions.DisconnectedBehavior.REJECT_COMMANDS)
-                .build());
-        connection = redisClient.connect();
-        client = redisClient;
-    }
+  @Override
+  public void initConnection() {
+    LOGGER.info("Opening standalone redis connection to {}", uri);
+    RedisClient redisClient = RedisClient.create(uri);
+    // We want to loudly fail in order to alert.
+    redisClient.setOptions(
+        ClientOptions.builder()
+            .disconnectedBehavior(ClientOptions.DisconnectedBehavior.REJECT_COMMANDS)
+            .build());
+    connection = redisClient.connect();
+    client = redisClient;
+  }
 
-    @Override
-    protected RedisClusterCommands<String, String> syncCommands() {
-        return ((StatefulRedisConnection<String, String>)connection).sync();
-    }
+  @Override
+  protected RedisClusterCommands<String, String> syncCommands() {
+    return ((StatefulRedisConnection<String, String>) connection).sync();
+  }
 
-    @Override
-    protected RedisClusterAsyncCommands<String, String> asyncCommands() {
-        return ((StatefulRedisConnection<String, String>)connection).async();
-    }
+  @Override
+  protected RedisClusterAsyncCommands<String, String> asyncCommands() {
+    return ((StatefulRedisConnection<String, String>) connection).async();
+  }
 }

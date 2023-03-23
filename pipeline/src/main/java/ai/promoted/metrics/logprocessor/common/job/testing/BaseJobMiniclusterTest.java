@@ -5,16 +5,21 @@ import ai.promoted.metrics.logprocessor.common.job.BaseFlinkJob;
 import ai.promoted.metrics.logprocessor.common.testing.MiniClusterExtension;
 import ai.promoted.metrics.logprocessor.common.testing.MiniclusterUtils;
 import ai.promoted.proto.common.Timing;
+import java.time.Duration;
+import java.util.Collection;
+import java.util.List;
+import java.util.concurrent.ExecutionException;
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.JobID;
-import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.api.common.eventtime.SerializableTimestampAssigner;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.client.deployment.executors.RemoteExecutor;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.DeploymentOptions;
+import org.apache.flink.contrib.streaming.state.EmbeddedRocksDBStateBackend;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.environment.ExecutionCheckpointingOptions;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.source.RichSourceFunction;
 import org.apache.flink.streaming.api.watermark.Watermark;
@@ -22,21 +27,19 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.BeforeEach;
 
-import java.time.Duration;
-import java.util.Collection;
-import java.util.List;
-import java.util.concurrent.ExecutionException;
-
 /** ABC for a Flink job minicluster integration test. */
 public abstract class BaseJobMiniclusterTest<JOB extends BaseFlinkJob> extends BaseJobTest<JOB> {
   private static final Logger LOGGER = LogManager.getLogger(BaseJobMiniclusterTest.class);
 
   // TODO - change the test watermark strategy after updating production.
-  // I don't know how to properly implement watermarks and timestamps in tests when faking out a Kafka source.
+  // I don't know how to properly implement watermarks and timestamps in tests when faking out a
+  // Kafka source.
   // For now, just override how timestamps are assigned.
-  static <T> WatermarkStrategy<T> getTestWatermarkStrategy(SerializableFunction<T, Long> getTimestamp) {
+  static <T> WatermarkStrategy<T> getTestWatermarkStrategy(
+      SerializableFunction<T, Long> getTimestamp) {
     return WatermarkStrategy.<T>forBoundedOutOfOrderness(Duration.ofSeconds(1))
-            .withTimestampAssigner(new SerializableTimestampAssigner<T>() {
+        .withTimestampAssigner(
+            new SerializableTimestampAssigner<T>() {
               @Override
               public long extractTimestamp(T message, long l) {
                 return getTimestamp.apply(message);
@@ -44,41 +47,90 @@ public abstract class BaseJobMiniclusterTest<JOB extends BaseFlinkJob> extends B
             });
   }
 
-  protected <T> SingleOutputStreamOperator<T> fromItems(StreamExecutionEnvironment env, String name, List<T> data, SerializableFunction<T, Timing> getTiming) {
-    return fromItems(env, name, data, getTestWatermarkStrategy(record -> getTiming.apply(record).getEventApiTimestamp()));
+  protected <T> SingleOutputStreamOperator<T> fromItems(
+      StreamExecutionEnvironment env,
+      String name,
+      List<T> data,
+      SerializableFunction<T, Timing> getTiming) {
+    return fromItems(
+        env,
+        name,
+        data,
+        getTestWatermarkStrategy(record -> getTiming.apply(record).getEventApiTimestamp()));
   }
 
-  private <T> SingleOutputStreamOperator<T> fromItems(StreamExecutionEnvironment env, String name, List<T> data, WatermarkStrategy<T> watermarkStrategy) {
+  private <T> SingleOutputStreamOperator<T> fromItems(
+      StreamExecutionEnvironment env,
+      String name,
+      List<T> data,
+      WatermarkStrategy<T> watermarkStrategy) {
     if (data.isEmpty()) {
-      throw new IllegalArgumentException("data must be non-empty.  If you want empty, look at the other fromItems");
+      throw new IllegalArgumentException(
+          "data must be non-empty.  If you want empty, look at the other fromItems");
     }
-    return fromItems(env, name, data, TypeInformation.<T>of((Class<T>) data.get(0).getClass()), watermarkStrategy);
+    return fromItems(
+        env,
+        name,
+        data,
+        TypeInformation.<T>of((Class<T>) data.get(0).getClass()),
+        watermarkStrategy);
   }
 
-  protected <T> SingleOutputStreamOperator<T> fromItems(StreamExecutionEnvironment env, String name, List<T> data, TypeInformation<T> type, SerializableFunction<T, Timing> getTiming) {
-    return fromItems(env, name, data, type, getTestWatermarkStrategy(record -> getTiming.apply(record).getEventApiTimestamp()));
+  protected <T> SingleOutputStreamOperator<T> fromItems(
+      StreamExecutionEnvironment env,
+      String name,
+      List<T> data,
+      TypeInformation<T> type,
+      SerializableFunction<T, Timing> getTiming) {
+    return fromItems(
+        env,
+        name,
+        data,
+        type,
+        getTestWatermarkStrategy(record -> getTiming.apply(record).getEventApiTimestamp()));
   }
 
-  private <T> SingleOutputStreamOperator<T> fromItems(StreamExecutionEnvironment env, String name, List<T> data, TypeInformation<T> type, WatermarkStrategy<T> watermarkStrategy) {
+  private <T> SingleOutputStreamOperator<T> fromItems(
+      StreamExecutionEnvironment env,
+      String name,
+      List<T> data,
+      TypeInformation<T> type,
+      WatermarkStrategy<T> watermarkStrategy) {
     return env.fromCollection(data, type)
-            .uid("source-" + name)
-            .name("source-" + name)
-            .assignTimestampsAndWatermarks(watermarkStrategy)
-            .uid("assign-timestamps-and-watermarks-" + name)
-            .name("assign-timestamps-and-watermarks-" + name);
+        .uid("source-" + name)
+        .name("source-" + name)
+        .assignTimestampsAndWatermarks(watermarkStrategy)
+        .uid("assign-timestamps-and-watermarks-" + name)
+        .name("assign-timestamps-and-watermarks-" + name);
   }
 
-  protected <T> SingleOutputStreamOperator<T> fromCollectionSource(StreamExecutionEnvironment env, String name, CollectionSource<T> input, TypeInformation<T> type, SerializableFunction<T, Timing> getTiming) {
-    return fromCollectionSource(env, name, input, type, getTestWatermarkStrategy(record -> getTiming.apply(record).getEventApiTimestamp()));
+  protected <T> SingleOutputStreamOperator<T> fromCollectionSource(
+      StreamExecutionEnvironment env,
+      String name,
+      CollectionSource<T> input,
+      TypeInformation<T> type,
+      SerializableFunction<T, Timing> getTiming) {
+    return fromCollectionSource(
+        env,
+        name,
+        input,
+        type,
+        getTestWatermarkStrategy(record -> getTiming.apply(record).getEventApiTimestamp()));
   }
 
-  private <T> SingleOutputStreamOperator<T> fromCollectionSource(StreamExecutionEnvironment env, String name, CollectionSource<T> input, TypeInformation<T> type, WatermarkStrategy<T> watermarkStrategy) {
-    return env.addSource(input).returns(type)
-            .uid("source-" + name)
-            .name("source-" + name)
-            .assignTimestampsAndWatermarks(watermarkStrategy)
-            .uid("assign-timestamps-and-watermarks-" + name)
-            .name("assign-timestamps-and-watermarks-" + name);
+  private <T> SingleOutputStreamOperator<T> fromCollectionSource(
+      StreamExecutionEnvironment env,
+      String name,
+      CollectionSource<T> input,
+      TypeInformation<T> type,
+      WatermarkStrategy<T> watermarkStrategy) {
+    return env.addSource(input)
+        .returns(type)
+        .uid("source-" + name)
+        .name("source-" + name)
+        .assignTimestampsAndWatermarks(watermarkStrategy)
+        .uid("assign-timestamps-and-watermarks-" + name)
+        .name("assign-timestamps-and-watermarks-" + name);
   }
 
   /** SourceFunction used to provide source streams for test input. */
@@ -109,34 +161,41 @@ public abstract class BaseJobMiniclusterTest<JOB extends BaseFlinkJob> extends B
     public void cancel() {}
   }
 
-  protected static void waitForDone(JobExecutionResult result) throws InterruptedException, ExecutionException {
+  protected static void waitForDone(JobExecutionResult result)
+      throws InterruptedException, ExecutionException {
     waitForDone(result.getJobID());
   }
 
   protected static void waitForDone(JobID jobID) throws InterruptedException, ExecutionException {
     // You can uncomment these line if you sleep on all waitForDones and get the REST API.
     //
-    // LOGGER.info("MiniCluster Flink REST API=" + MiniClusterExtension.flinkCluster.getClusterClient().getWebInterfaceURL());
+    // LOGGER.info("MiniCluster Flink REST API=" +
+    // MiniClusterExtension.flinkCluster.getClusterClient().getWebInterfaceURL());
     // Thread.sleep(2 * 60 * 1000); // Sleep while interacting with the REST API.
     //
     // Also change:
     // 1. `MiniclusterUtils.shouldWait`.
     // 2. `java_junit5_test`'s `timeout` field in BUILD files.
-    // 3. `BaseJobTest`'s `setCheckpointTimeout` duration to slightly shorter than the timeout in step 2.
-    MiniclusterUtils.waitForDone(MiniClusterExtension.flinkCluster.getClusterClient(), jobID, Duration.ofMinutes(1));
+    // 3. `BaseJobTest`'s `setCheckpointTimeout` duration to slightly shorter than the timeout in
+    // step 2.
+    MiniclusterUtils.waitForDone(
+        MiniClusterExtension.flinkCluster.getClusterClient(), jobID, Duration.ofMinutes(5));
   }
 
   @BeforeEach
   public void setUp() {
     env = createTestStreamExecutionEnvironment();
+    env.setStateBackend(new EmbeddedRocksDBStateBackend());
   }
 
   @Override
   protected Configuration getClientConfiguration() {
-    Configuration result = new Configuration(MiniClusterExtension.flinkCluster.getClientConfiguration());
+    Configuration result =
+        new Configuration(MiniClusterExtension.flinkCluster.getClientConfiguration());
+    result.setString("fs.s3a.connection.maximum", "100");
     result.set(DeploymentOptions.TARGET, RemoteExecutor.NAME);
     // Forces the final checkpoint. This is important to getting file outputs in minicluster tests.
-    result.setBoolean("execution.checkpointing.checkpoints-after-tasks-finish.enabled", true);
+    result.setBoolean(ExecutionCheckpointingOptions.ENABLE_CHECKPOINTS_AFTER_TASKS_FINISH, true);
     return result;
   }
 }

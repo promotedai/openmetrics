@@ -11,7 +11,7 @@ java_junit5_test(
         "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/records",
         "@com_github_promotedai_schema_internal_git//proto/event:event_java_proto",
         "@maven//:org_apache_flink_flink_core",
-        "@maven//:org_apache_flink_flink_streaming_java_2_12",
+        "@maven//:org_apache_flink_flink_streaming_java",
         "@maven//:org_apache_kafka_kafka_clients",
         "@maven//:org_mockito_mockito_core",
     ],

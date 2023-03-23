@@ -12,7 +12,7 @@ java_junit5_test(
         "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/util",
         "@com_github_promotedai_schema_internal_git//proto/event:event_java_proto",
         "@maven//:com_google_guava_guava",
-        "@maven//:org_apache_flink_flink_streaming_java_2_12",
+        "@maven//:org_apache_flink_flink_streaming_java",
         "@maven//:org_mockito_mockito_core",
     ],
 )

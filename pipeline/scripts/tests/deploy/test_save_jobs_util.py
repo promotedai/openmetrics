@@ -241,6 +241,7 @@ class GetSavepointSummaryTest(unittest.TestCase):
 
 def get_test_config():
     return new_config({
+        "namespace": "ns",
         "sub_job_type": "RAW_LOG_USER",
         "new": True,
     })
@@ -378,6 +379,7 @@ class CreateModifiedKubernetesConfigTest(unittest.TestCase):
             f.write(input)
 
         config = new_config({
+            "namespace": "ns",
             "sub_job_type": "RAW_LOG_USER",
             "new": True,
             "stream_job_file": original_fp.name,

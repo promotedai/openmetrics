@@ -1,23 +1,17 @@
 package ai.promoted.metrics.logprocessor.common.job;
 
-import ai.promoted.metrics.logprocessor.common.job.BaseFlinkJob;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+
 import ai.promoted.metrics.logprocessor.common.job.testing.BaseJobUnitTest;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.protobuf.GeneratedMessageV3;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-
-/**
- * Unit tests (non-minicluster tests).
- */
+/** Unit tests (non-minicluster tests). */
 public class BaseFlinkJobUnitTest extends BaseJobUnitTest<BaseFlinkJob> {
 
   BaseFlinkJob job;
@@ -29,26 +23,26 @@ public class BaseFlinkJobUnitTest extends BaseJobUnitTest<BaseFlinkJob> {
 
   @Override
   protected BaseFlinkJob createJob() {
-    BaseFlinkJob job = new BaseFlinkJob() {
-      @Override
-      protected String getJobName() {
-        return null;
-      }
+    BaseFlinkJob job =
+        new BaseFlinkJob() {
+          @Override
+          protected String getJobName() {
+            return null;
+          }
 
-      @Override
-      public List<Class<? extends GeneratedMessageV3>> getProtoClasses() {
-        return ImmutableList.of();
-      }
+          @Override
+          public List<Class<? extends GeneratedMessageV3>> getProtoClasses() {
+            return ImmutableList.of();
+          }
 
-      @Override
-      public void validateArgs() {
-      }
+          @Override
+          public void validateArgs() {}
 
-      @Override
-      public Integer call() throws Exception {
-        return null;
-      }
-    };
+          @Override
+          public Integer call() throws Exception {
+            return null;
+          }
+        };
     job.parallelism = 4;
     job.maxParallelism = 24;
     return job;

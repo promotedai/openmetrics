@@ -1,0 +1,11 @@
+.ijwb
+bazel-metrics
+bazel-bin
+bazel-out
+bazel-testlogs
+pipeline/scripts/runbook/__pycache__/
+.idea
+.vscode
+.DS_Store
+*.iml
+.envrc

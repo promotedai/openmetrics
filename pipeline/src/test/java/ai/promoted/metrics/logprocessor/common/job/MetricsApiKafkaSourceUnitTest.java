@@ -1,15 +1,11 @@
 package ai.promoted.metrics.logprocessor.common.job;
 
-import ai.promoted.metrics.logprocessor.common.job.KafkaSegment;
-import ai.promoted.metrics.logprocessor.common.job.MetricsApiKafkaSource;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-
-/**
- * Unit tests (non-minicluster tests).
- */
+/** Unit tests (non-minicluster tests). */
 public class MetricsApiKafkaSourceUnitTest {
 
   MetricsApiKafkaSource segment;

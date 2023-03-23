@@ -19,6 +19,9 @@
 
 package ai.promoted.metrics.logprocessor.common.flink.operator;
 
+import java.io.Serializable;
+import java.util.Optional;
+import java.util.function.Consumer;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.streaming.api.operators.InternalTimeServiceManager;
 import org.apache.flink.streaming.api.operators.KeyedProcessOperator;
@@ -27,53 +30,47 @@ import org.apache.flink.util.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.Serializable;
-import java.util.Optional;
-import java.util.function.Consumer;
-
 /** A {@link KeyedProcessOperator} that supports holding back watermarks with a static delay. */
 public class KeyedProcessOperatorWithWatermarkDelay<K, IN, OUT>
-        extends KeyedProcessOperator<K, IN, OUT> {
-    private static final Logger LOGGER = LogManager.getLogger(KeyedProcessOperatorWithWatermarkDelay.class);
-    private static final long serialVersionUID = 1;
+    extends KeyedProcessOperator<K, IN, OUT> {
+  private static final Logger LOGGER =
+      LogManager.getLogger(KeyedProcessOperatorWithWatermarkDelay.class);
+  private static final long serialVersionUID = 1;
 
-    private final Consumer<Watermark> emitter;
-    private final boolean textLogWatermark;
+  private final Consumer<Watermark> emitter;
+  private final boolean textLogWatermark;
 
-    public KeyedProcessOperatorWithWatermarkDelay(
-            KeyedProcessFunction<K, IN, OUT> flatMapper,
-            long watermarkDelay,
-            boolean textLogWatermark) {
-        super(flatMapper);
-        this.textLogWatermark = textLogWatermark;
-        Preconditions.checkArgument(
-                watermarkDelay >= 0, "The watermark delay should be non-negative.");
-        if (watermarkDelay == 0) {
-            // emits watermark without delay
-            emitter =
-                    (Consumer<Watermark> & Serializable)
-                            (Watermark mark) -> output.emitWatermark(mark);
-        } else {
-            // emits watermark with delay
-            emitter =
-                    (Consumer<Watermark> & Serializable)
-                            (Watermark mark) ->
-                                    output.emitWatermark(
-                                            new Watermark(mark.getTimestamp() - watermarkDelay));
-        }
+  public KeyedProcessOperatorWithWatermarkDelay(
+      KeyedProcessFunction<K, IN, OUT> flatMapper, long watermarkDelay, boolean textLogWatermark) {
+    super(flatMapper);
+    this.textLogWatermark = textLogWatermark;
+    Preconditions.checkArgument(watermarkDelay >= 0, "The watermark delay should be non-negative.");
+    if (watermarkDelay == 0) {
+      // emits watermark without delay
+      emitter = (Consumer<Watermark> & Serializable) (Watermark mark) -> output.emitWatermark(mark);
+    } else {
+      // emits watermark with delay
+      emitter =
+          (Consumer<Watermark> & Serializable)
+              (Watermark mark) ->
+                  output.emitWatermark(new Watermark(mark.getTimestamp() - watermarkDelay));
     }
+  }
 
-    @Override
-    public void processWatermark(Watermark mark) throws Exception {
-        // PR - why does this not call super.processWatermark?
-        Optional<InternalTimeServiceManager<?>> timeServiceManager = getTimeServiceManager();
-        if (timeServiceManager.isPresent()) {
-            timeServiceManager.get().advanceWatermark(mark);
-        }
-        emitter.accept(mark);
-
-        if (textLogWatermark) {
-            LOGGER.info("processWatermark {} - {}", this.getUserFunction().getClass().getSimpleName(), mark.getTimestamp());
-        }
+  @Override
+  public void processWatermark(Watermark mark) throws Exception {
+    // PR - why does this not call super.processWatermark?
+    Optional<InternalTimeServiceManager<?>> timeServiceManager = getTimeServiceManager();
+    if (timeServiceManager.isPresent()) {
+      timeServiceManager.get().advanceWatermark(mark);
     }
+    emitter.accept(mark);
+
+    if (textLogWatermark) {
+      LOGGER.info(
+          "processWatermark {} - {}",
+          this.getUserFunction().getClass().getSimpleName(),
+          mark.getTimestamp());
+    }
+  }
 }

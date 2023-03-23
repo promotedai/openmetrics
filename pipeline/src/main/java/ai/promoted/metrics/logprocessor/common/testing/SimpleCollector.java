@@ -1,10 +1,9 @@
 package ai.promoted.metrics.logprocessor.common.testing;
 
 import com.google.common.collect.ImmutableList;
-import org.apache.flink.util.Collector;
-
 import java.util.ArrayList;
 import java.util.List;
+import org.apache.flink.util.Collector;
 
 public final class SimpleCollector<T> implements Collector<T> {
   private final List<T> records = new ArrayList();
@@ -19,6 +18,5 @@ public final class SimpleCollector<T> implements Collector<T> {
   }
 
   @Override
-  public void close() {
-  }
+  public void close() {}
 }
