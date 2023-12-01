@@ -1,0 +1,42 @@
+package(default_visibility = ["//src/test:__subpackages__"])
+
+load("//:junit5.bzl", "java_junit5_test")
+
+# Use java_test after bazel officially support junit5
+java_junit5_test(
+    name = "minicluster_tests",
+    # Temp change.
+    timeout = "short",
+    srcs = glob(["*MiniclusterTest.java"]),
+    data = [
+        "//pipeline/src/test/java/resources:test-data",
+    ],
+    jvm_flags = [
+        "-Dlog4j.configurationFile=resources/log4j2-test.xml",
+        "-Xmx4g",
+    ],
+    main_class = "com.flexport.bazeljunit5.BazelJUnit5ConsoleLauncher",
+    resources = [
+        "//pipeline/src/resources:log4j2-test.xml",
+    ],
+    tags = ["exclusive"],
+    test_package = "ai.promoted.metrics.logprocessor.job.contentetl",
+    use_testrunner = False,
+    runtime_deps = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/contentetl:content_etl_job"],
+    deps = [
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/job/testing",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/testing",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/util",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/contentetl:content_etl_job",
+        "//pipeline/src/main/java/com/flexport/bazeljunit5",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_truth_truth",
+        "@maven//:org_apache_flink_flink_connector_files",
+        "@maven//:org_apache_flink_flink_core",
+        "@maven//:org_apache_flink_flink_json",
+        "@maven//:org_apache_flink_flink_table_api_java_uber",
+        "@maven_neverlink//:org_apache_logging_log4j_log4j_api",
+        "@maven_test//:org_apache_flink_flink_table_planner_2_12",
+    ],
+)

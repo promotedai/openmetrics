@@ -1,7 +1,7 @@
 package ai.promoted.metrics.logprocessor.common.functions.filter;
 
-import ai.promoted.metrics.logprocessor.common.functions.SerializableFunction;
-import ai.promoted.metrics.logprocessor.common.functions.SerializablePredicate;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableFunction;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializablePredicate;
 import ai.promoted.proto.delivery.Insertion;
 import ai.promoted.proto.delivery.internal.features.Features;
 import java.util.List;

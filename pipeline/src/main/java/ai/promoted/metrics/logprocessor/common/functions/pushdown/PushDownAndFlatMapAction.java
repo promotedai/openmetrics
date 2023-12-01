@@ -2,50 +2,31 @@ package ai.promoted.metrics.logprocessor.common.functions.pushdown;
 
 import ai.promoted.proto.event.Action;
 import ai.promoted.proto.event.LogRequest;
-import java.util.function.Consumer;
-import org.apache.flink.util.Collector;
 
 /**
  * Copies {@link LogRequest}'s {@link Action} and fills in default base values. See base class for
  * more details.
  */
-public class PushDownAndFlatMapAction extends BasePushDownAndFlatMap<Action> {
+public class PushDownAndFlatMapAction extends BaseDevicePushDownAndFlatMap<Action, Action.Builder> {
 
-  @Override
-  public void flatMap(LogRequest logRequest, Collector<Action> out) {
-    flatMap(logRequest, out::collect);
-  }
-
-  public void flatMap(LogRequest logRequest, Consumer<Action> out) {
-    // Do this across all logUserIds.
-    String lowerCaseBatchLogUserId = logRequest.getUserInfo().getLogUserId().toLowerCase();
-    logRequest.getActionList().stream()
-        .map(action -> pushDownFields(action, logRequest, lowerCaseBatchLogUserId))
-        .forEach(out);
-  }
-
-  public static Action pushDownFields(
-      Action action, LogRequest batchValue, String lowerCaseBatchLogUserId) {
-    Action.Builder builder = action.toBuilder();
-    if (builder.getPlatformId() == 0) {
-      builder.setPlatformId(batchValue.getPlatformId());
-    }
-    if (batchValue.hasUserInfo()) {
-      pushDownLogUserIdFields(builder.getUserInfoBuilder(), lowerCaseBatchLogUserId);
-    } else if (builder.hasUserInfo()) {
-      // If the top-level `LogRequest.user_info` is not set, we still want to lowercase any
-      // logUserIds.
-      lowerCaseLogUserIdFields(builder.getUserInfoBuilder());
-    }
-    if (batchValue.hasTiming()) {
-      pushDownTiming(builder.getTimingBuilder(), batchValue);
-    }
-    if (batchValue.hasClientInfo()) {
-      pushDownClientInfo(builder.getClientInfoBuilder(), batchValue);
-    }
-    if (batchValue.hasDevice()) {
-      pushDownDevice(builder.getDeviceBuilder(), batchValue);
-    }
-    return builder.build();
+  public PushDownAndFlatMapAction() {
+    super(
+        LogRequest::getActionList,
+        Action::toBuilder,
+        Action.Builder::build,
+        Action.Builder::getPlatformId,
+        Action.Builder::setPlatformId,
+        Action.Builder::hasUserInfo,
+        Action.Builder::getUserInfo,
+        Action.Builder::setUserInfo,
+        Action.Builder::hasTiming,
+        Action.Builder::getTiming,
+        Action.Builder::setTiming,
+        Action.Builder::hasClientInfo,
+        Action.Builder::getClientInfo,
+        Action.Builder::setClientInfo,
+        Action.Builder::hasDevice,
+        Action.Builder::getDevice,
+        Action.Builder::setDevice);
   }
 }

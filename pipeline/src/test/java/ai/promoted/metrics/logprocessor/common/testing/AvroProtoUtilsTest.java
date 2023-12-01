@@ -51,7 +51,7 @@ public class AvroProtoUtilsTest {
   @Test
   public void testGetGenericRecordsSet() throws IOException {
     File file = writeTestData();
-    File files[] = {file};
+    File[] files = {file};
     ImmutableSet<GenericRecord> actual = loadAvroRecords(files);
     assertEquals(1, actual.size());
 
@@ -63,9 +63,11 @@ public class AvroProtoUtilsTest {
                 "user_info",
                 ImmutableMap.<String, Object>builder()
                     .put("user_id", "")
+                    .put("anon_user_id", "")
                     .put("log_user_id", "00000000-0000-0000-0000-000000000001")
                     .put("is_internal_user", false)
                     .put("ignore_usage", false)
+                    .put("retained_user_id", "")
                     .build())
             .put(
                 "timing",
@@ -73,6 +75,7 @@ public class AvroProtoUtilsTest {
                     .put("client_log_timestamp", 1601596151000L)
                     .put("event_api_timestamp", 1601596151000L)
                     .put("log_timestamp", 0L)
+                    .put("processing_timestamp", 0L)
                     .build())
             .put("impression_id", "55555555-5555-5555-0000-000000000001")
             .put("insertion_id", "44444444-4444-4444-0000-000000000001")
@@ -90,7 +93,7 @@ public class AvroProtoUtilsTest {
   @Test
   public void testAssertAvroFilesSingle() throws IOException {
     File file = writeTestData();
-    File files[] = {file};
+    File[] files = {file};
     ImmutableSet<GenericRecord> actual = loadAvroRecords(files);
     assertAvroFiles(exactlyOne(actual), files, "message");
   }
@@ -98,7 +101,7 @@ public class AvroProtoUtilsTest {
   @Test
   public void testAssertAvroFilesIterable() throws IOException {
     File file = writeTestData();
-    File files[] = {file};
+    File[] files = {file};
     ImmutableSet<GenericRecord> actual = loadAvroRecords(files);
     assertAvroFiles(actual, files, "message");
   }

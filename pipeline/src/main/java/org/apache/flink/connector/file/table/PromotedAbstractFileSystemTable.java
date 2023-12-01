@@ -25,7 +25,16 @@ import org.apache.flink.core.fs.Path;
 import org.apache.flink.table.catalog.ObjectIdentifier;
 import org.apache.flink.table.types.DataType;
 
-/** Abstract File system table for providing some common methods. */
+/**
+ * Abstract File system table for providing some common methods. Ported from
+ *
+ * <p><a
+ * href="https://github.com/apache/flink/blob/1.16/flink-connectors/flink-connector-files/src/main/java/org/apache/flink/connector/file/table/AbstractFileSystemTable.java">Flink
+ * Repo</a>
+ *
+ * <p>The original one has a default modifier. During runtime, our modified classes such as
+ * PromotedFileSystemTable can't access this because they will be loaded by different class loaders.
+ */
 abstract class PromotedAbstractFileSystemTable {
 
   final ObjectIdentifier tableIdentifier;

@@ -3,8 +3,9 @@ package ai.promoted.metrics.logprocessor.common.job;
 import ai.promoted.metrics.logprocessor.common.constant.Constants;
 import ai.promoted.metrics.logprocessor.common.s3.S3Path;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.protobuf.GeneratedMessageV3;
-import java.util.List;
+import java.util.Set;
 import picocli.CommandLine.Option;
 
 public class S3Segment implements FlinkSegment {
@@ -31,20 +32,20 @@ public class S3Segment implements FlinkSegment {
   public void validateArgs() {}
 
   @Override
-  public List<Class<? extends GeneratedMessageV3>> getProtoClasses() {
-    return ImmutableList.of();
+  public Set<Class<? extends GeneratedMessageV3>> getProtoClasses() {
+    return ImmutableSet.of();
   }
 
   // TODO - it might not be intuitive when the job label is prefixed in the s3 path.  Figure out
   // a better way to prevent programming errors.
 
   /** DO NOT pass in subdirs with path delimiters like '/'. This does it for you. */
-  public S3Path.Builder getDir(String... subdirs) {
-    return getDir(ImmutableList.copyOf(subdirs));
+  public S3Path.Builder getOutputDir(String... subdirs) {
+    return getOutputDir(ImmutableList.copyOf(subdirs));
   }
 
   /** DO NOT pass in subdirs with path delimiters like '/'. This does it for you. */
-  public S3Path.Builder getDir(Iterable<String> subdirs) {
+  public S3Path.Builder getOutputDir(Iterable<String> subdirs) {
     S3Path.Builder builder = getPathBuilder();
     String jobLabel = job.getJobLabel();
     if (!jobLabel.isEmpty()) {

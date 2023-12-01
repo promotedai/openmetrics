@@ -3,10 +3,13 @@ load("@rules_java//java:defs.bzl", "java_binary", "java_library")
 DEPS = [
     "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/counter",
     "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions",
+    "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions/base",
     "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions/sink",
     "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/job",
+    "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/model:avro",
     "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/util",
-    "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/raw/model:avro",
+    "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/queryablestate",
+    "@com_github_promotedai_schema_internal_git//proto/queryablestate:flink_queryable_state_java_proto",
     "@com_github_promotedai_schema_internal_git//proto/delivery/private/features:features_java_proto",
     "@com_github_promotedai_schema_internal_git//proto/event:event_java_proto",
     "@com_google_protobuf//:protobuf_java",
@@ -15,7 +18,7 @@ DEPS = [
     "@maven//:com_google_guava_guava",
     "@maven//:com_google_protobuf_protobuf_java_util",
     "@maven//:info_picocli_picocli",
-    "@maven//:org_apache_logging_log4j_log4j_api",
+    "@maven_neverlink//:org_apache_logging_log4j_log4j_api",
     "@maven_neverlink//:org_apache_flink_flink_clients",
     "@maven_neverlink//:org_apache_flink_flink_core",
     "@maven_neverlink//:org_apache_flink_flink_java",
@@ -41,6 +44,26 @@ java_binary(
 
 load("@io_bazel_rules_docker//container:container.bzl", "container_image")
 load("@io_bazel_rules_docker//docker/util:run.bzl", "container_run_and_commit_layer")
+load("@bazel_skylib//rules:common_settings.bzl", "string_flag")
+
+string_flag(
+    name = "image-arch",
+    build_setting_default = "x86",
+)
+
+config_setting(
+    name = "x86",
+    flag_values = {
+        ":image-arch": "x86",
+    },
+)
+
+config_setting(
+    name = "arm",
+    flag_values = {
+        ":image-arch": "arm",
+    },
+)
 
 container_run_and_commit_layer(
     name = "os_upgrade",
@@ -55,12 +78,20 @@ container_run_and_commit_layer(
         "--entrypoint",
         "/usr/bin/env",
     ],
-    image = "@flink//image",
+    image = select({
+        ":arm": "@flink-arm//image",
+        ":x86": "@flink//image",
+        "//conditions:default": "@flink//image",
+    }),
 )
 
 container_image(
     name = "CounterJob_image",
-    base = "@flink//image",
+    base = select({
+        ":arm": "@flink-arm//image",
+        ":x86": "@flink//image",
+        "//conditions:default": "@flink//image",
+    }),
     cmd = ["CounterJob_deploy.jar"],
     data_path = "/pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/counter",
     directory = "/opt",
@@ -72,5 +103,5 @@ container_image(
     ],
     stamp = True,
     # FLINK_VERSION = this needs updating when we increment the Flink version.
-    symlinks = {"/opt/flink/plugins/s3-fs-hadoop/flink-s3-fs-hadoop-1.16.1.jar": "/opt/flink/opt/flink-s3-fs-hadoop-1.16.1.jar"},
+    symlinks = {"/opt/flink/plugins/s3-fs-hadoop/flink-s3-fs-hadoop-1.17.1.jar": "/opt/flink/opt/flink-s3-fs-hadoop-1.17.1.jar"},
 )

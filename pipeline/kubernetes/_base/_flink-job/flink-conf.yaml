@@ -1,0 +1,32 @@
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: flink-job
+spec:
+  jobManager:
+    resource:
+      memory: "2048m"
+      cpu: 1.0
+  taskManager:
+    resource:
+      memory: "2048m"
+      cpu: 1.0
+  flinkConfiguration:
+    taskmanager.numberOfTaskSlots: "1"
+    # Kafka
+    # request.timeout.ms: "150000"
+    # The default, 256mb, is too small.
+    # taskmanager.memory.jvm-metaspace.size: 320mb
+
+    # Storage
+    process.taskmanager.working-dir: /taskmanager-data/
+    process.jobmanager.working-dir: /jobmanager-data/
+
+    # Use rocksdb by default
+    state.backend: rocksdb
+    state.backend.incremental: "true"
+    state.backend.rocksdb.checkpoint.transfer.thread.num: "4"
+    state.backend.rocksdb.thread.num: "4"
+    state.backend.rocksdb.predefined-options: FLASH_SSD_OPTIMIZED
+    state.backend.rocksdb.timer-service.factory: ROCKSDB
+

@@ -3,13 +3,14 @@ package ai.promoted.metrics.logprocessor.common.functions;
 import ai.promoted.proto.delivery.DeliveryLog;
 import ai.promoted.proto.delivery.Request;
 import ai.promoted.proto.event.Action;
+import ai.promoted.proto.event.AttributedAction;
 import ai.promoted.proto.event.AutoView;
 import ai.promoted.proto.event.CohortMembership;
 import ai.promoted.proto.event.Diagnostics;
-import ai.promoted.proto.event.DroppedMergeDetailsEvent;
 import ai.promoted.proto.event.FlatResponseInsertion;
+import ai.promoted.proto.event.FlatResponseInsertion.FlatAttributedAction;
 import ai.promoted.proto.event.Impression;
-import ai.promoted.proto.event.JoinedEvent;
+import ai.promoted.proto.event.JoinedImpression;
 import ai.promoted.proto.event.Session;
 import ai.promoted.proto.event.SessionProfile;
 import ai.promoted.proto.event.User;
@@ -18,28 +19,13 @@ import ai.promoted.proto.event.View;
 /** Util for UserInfo. */
 public class UserInfoUtil {
 
-  public static final JoinedEvent clearUserId(JoinedEvent joinedEvent) {
-    return clearUserId(joinedEvent.toBuilder()).build();
+  public static final JoinedImpression clearUserId(JoinedImpression joinedImpression) {
+    return clearUserId(joinedImpression.toBuilder()).build();
   }
 
-  public static final JoinedEvent.Builder clearUserId(JoinedEvent.Builder builder) {
+  public static final JoinedImpression.Builder clearUserId(JoinedImpression.Builder builder) {
     if (builder.hasIds()) {
       builder.getIdsBuilder().clearUserId();
-    }
-    if (builder.hasUser()) {
-      clearUserId(builder.getUserBuilder());
-    }
-    if (builder.hasSessionProfile()) {
-      clearUserId(builder.getSessionProfileBuilder());
-    }
-    if (builder.hasSession()) {
-      clearUserId(builder.getSessionBuilder());
-    }
-    if (builder.hasView()) {
-      clearUserId(builder.getViewBuilder());
-    }
-    if (builder.hasAutoView()) {
-      clearUserId(builder.getAutoViewBuilder());
     }
     if (builder.hasRequest()) {
       clearUserId(builder.getRequestBuilder());
@@ -47,6 +33,25 @@ public class UserInfoUtil {
     if (builder.hasImpression()) {
       clearUserId(builder.getImpressionBuilder());
     }
+    return builder;
+  }
+
+  public static final AttributedAction clearUserId(AttributedAction attributedAction) {
+    return clearUserId(attributedAction.toBuilder()).build();
+  }
+
+  public static final AttributedAction.Builder clearUserId(AttributedAction.Builder builder) {
+    if (builder.hasAction()) {
+      clearUserId(builder.getActionBuilder());
+    }
+    if (builder.getTouchpoint().hasJoinedImpression()) {
+      clearUserId(builder.getTouchpointBuilder().getJoinedImpressionBuilder());
+    }
+    return builder;
+  }
+
+  public static final FlatAttributedAction.Builder clearUserId(
+      FlatAttributedAction.Builder builder) {
     if (builder.hasAction()) {
       clearUserId(builder.getActionBuilder());
     }
@@ -62,38 +67,11 @@ public class UserInfoUtil {
     if (builder.hasIds()) {
       builder.getIdsBuilder().clearUserId();
     }
-    if (builder.hasUser()) {
-      clearUserId(builder.getUserBuilder());
-    }
-    if (builder.hasSessionProfile()) {
-      clearUserId(builder.getSessionProfileBuilder());
-    }
-    if (builder.hasSession()) {
-      clearUserId(builder.getSessionBuilder());
-    }
-    if (builder.hasView()) {
-      clearUserId(builder.getViewBuilder());
-    }
-    if (builder.hasAutoView()) {
-      clearUserId(builder.getAutoViewBuilder());
-    }
     if (builder.hasRequest()) {
       clearUserId(builder.getRequestBuilder());
     }
     builder.getImpressionBuilderList().forEach(UserInfoUtil::clearUserId);
-    builder.getActionBuilderList().forEach(UserInfoUtil::clearUserId);
-    return builder;
-  }
-
-  public static final DroppedMergeDetailsEvent clearUserId(DroppedMergeDetailsEvent event) {
-    return clearUserId(event.toBuilder()).build();
-  }
-
-  public static final DroppedMergeDetailsEvent.Builder clearUserId(
-      DroppedMergeDetailsEvent.Builder builder) {
-    if (builder.hasJoinedEvent()) {
-      clearUserId(builder.getJoinedEventBuilder());
-    }
+    builder.getAttributedActionBuilderList().forEach(UserInfoUtil::clearUserId);
     return builder;
   }
 

@@ -1,5 +1,6 @@
 package ai.promoted.metrics.logprocessor.common.functions;
 
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializablePredicate;
 import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
@@ -26,5 +27,9 @@ public class FilterOperator<T> extends ProcessFunction<T, T> {
     } else {
       ctx.output(filteredOutTag, record);
     }
+  }
+
+  public OutputTag<T> getFilteredOutTag() {
+    return filteredOutTag;
   }
 }

@@ -12,19 +12,10 @@ import java.util.Optional;
  */
 @AutoValue
 abstract class State {
-  abstract Instant time();
-  // A global order of state.  Used a secondary sort in case times are the same.
-  abstract int index();
-
-  abstract Optional<LogRequest> logRequest();
-
-  /** Should be called when processing state. Might be a no-op Runnable. */
-  abstract Runnable runnable();
-
   /**
    * Dan's code comments.
    *
-   * <p>Dan wants flags to specify these cases: 1) ccc - Park -> Campground. 2) ddd ->
+   * <p>Dan wants flags to specify these cases: 1) Hipcamp - Park -> Campground. 2) Snackpass ->
    * Promotion Feed -> Item in store ->
    *
    * <p>TODO - keep more state around for IDs and stuff in IteratorValue.
@@ -39,4 +30,14 @@ abstract class State {
   static State create(Instant time, int index, Runnable runnable) {
     return new AutoValue_State(time, index, Optional.empty(), runnable);
   }
+
+  abstract Instant time();
+
+  // A global order of state.  Used a secondary sort in case times are the same.
+  abstract int index();
+
+  abstract Optional<LogRequest> logRequest();
+
+  /** Should be called when processing state. Might be a no-op Runnable. */
+  abstract Runnable runnable();
 }

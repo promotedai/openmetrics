@@ -1,6 +1,6 @@
 package ai.promoted.metrics.logprocessor.common.functions.inferred;
 
-import ai.promoted.metrics.logprocessor.common.functions.SerializableTriFunction;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableTriFunction;
 import com.google.common.collect.ImmutableList;
 import java.util.List;
 

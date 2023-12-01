@@ -14,14 +14,13 @@ DEPS = [
     "@maven//:com_google_protobuf_protobuf_java_util",
     "@maven//:info_picocli_picocli",
     "@maven_neverlink//:org_apache_flink_flink_core",
-    "@maven//:org_apache_flink_flink_csv",
+    "@maven_neverlink//:org_apache_flink_flink_csv",
     "@maven//:org_apache_flink_flink_connector_kafka",
     "@maven//:org_apache_flink_flink_connector_kinesis",
     "@maven_neverlink//:org_apache_flink_flink_java",
     "@maven_neverlink//:org_apache_flink_flink_streaming_java",
     "@maven_neverlink//:org_apache_flink_flink_table_api_java_uber",
-    "@maven//:org_apache_logging_log4j_log4j_api",
-    "@maven//:org_apache_logging_log4j_log4j_core",
+    "@maven_neverlink//:org_apache_logging_log4j_log4j_api",
     "@maven//:com_fasterxml_jackson_core_jackson_databind",
     "@maven//:com_fasterxml_jackson_dataformat_jackson_dataformat_csv",
 ]
@@ -46,6 +45,26 @@ java_binary(
 
 load("@io_bazel_rules_docker//container:container.bzl", "container_image")
 load("@io_bazel_rules_docker//docker/util:run.bzl", "container_run_and_commit_layer")
+load("@bazel_skylib//rules:common_settings.bzl", "string_flag")
+
+string_flag(
+    name = "image-arch",
+    build_setting_default = "x86",
+)
+
+config_setting(
+    name = "x86",
+    flag_values = {
+        ":image-arch": "x86",
+    },
+)
+
+config_setting(
+    name = "arm",
+    flag_values = {
+        ":image-arch": "arm",
+    },
+)
 
 container_run_and_commit_layer(
     name = "os_upgrade",
@@ -60,12 +79,20 @@ container_run_and_commit_layer(
         "--entrypoint",
         "/usr/bin/env",
     ],
-    image = "@flink//image",
+    image = select({
+        ":arm": "@flink-arm//image",
+        ":x86": "@flink//image",
+        "//conditions:default": "@flink//image",
+    }),
 )
 
 container_image(
     name = "ContentMetricsJob_image",
-    base = "@flink//image",
+    base = select({
+        ":arm": "@flink-arm//image",
+        ":x86": "@flink//image",
+        "//conditions:default": "@flink//image",
+    }),
     cmd = ["ContentMetricsJob_deploy.jar"],
     data_path = "/pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/contentmetrics",
     directory = "/opt",
@@ -77,5 +104,5 @@ container_image(
     ],
     stamp = True,
     # FLINK_VERSION = this needs updating when we increment the Flink version.
-    symlinks = {"/opt/flink/plugins/s3-fs-hadoop/flink-s3-fs-hadoop-1.16.1.jar": "/opt/flink/opt/flink-s3-fs-hadoop-1.16.1.jar"},
+    symlinks = {"/opt/flink/plugins/s3-fs-hadoop/flink-s3-fs-hadoop-1.17.1.jar": "/opt/flink/opt/flink-s3-fs-hadoop-1.17.1.jar"},
 )

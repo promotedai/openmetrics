@@ -1,9 +1,9 @@
 package ai.promoted.metrics.logprocessor.common.util;
 
+import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 
@@ -12,17 +12,18 @@ import ai.promoted.metrics.common.RecordType;
 import ai.promoted.metrics.error.LogFunctionName;
 import ai.promoted.metrics.error.MismatchError;
 import ai.promoted.proto.common.UserInfo;
+import ai.promoted.proto.delivery.Insertion;
 import ai.promoted.proto.delivery.Request;
 import ai.promoted.proto.delivery.internal.features.AggMetric;
-import ai.promoted.proto.event.Action;
 import ai.promoted.proto.event.ActionType;
+import ai.promoted.proto.event.AttributedAction;
+import ai.promoted.proto.event.CartContent;
 import ai.promoted.proto.event.FlatResponseInsertion;
 import ai.promoted.proto.event.Impression;
-import ai.promoted.proto.event.JoinedEvent;
 import ai.promoted.proto.event.JoinedIdentifiers;
+import ai.promoted.proto.event.JoinedImpression;
 import com.google.common.collect.ImmutableList;
-import java.util.function.BiConsumer;
-import org.apache.flink.util.OutputTag;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -30,8 +31,8 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.Mockito;
 
 public class FlatUtilTest {
-  private static JoinedEvent createJoinedAction(ActionType type) {
-    JoinedEvent.Builder builder = JoinedEvent.newBuilder();
+  private static AttributedAction createAttributedAction(ActionType type) {
+    AttributedAction.Builder builder = AttributedAction.newBuilder();
     if (ActionType.UNRECOGNIZED.equals(type)) {
       builder
           .getActionBuilder()
@@ -43,41 +44,98 @@ public class FlatUtilTest {
     return builder.build();
   }
 
+  // TODO - add tests for when values already exist.
   @Test
-  public void getRequestId() {
+  public void setFlatRequest() {
+    JoinedImpression.Builder event = JoinedImpression.newBuilder();
+    Consumer<MismatchError> errorLogger = Mockito.mock(Consumer.class);
+    JoinedImpression.Builder mergedBuilder =
+        FlatUtil.setFlatRequest(
+            event,
+            Request.newBuilder()
+                .setUserInfo(UserInfo.newBuilder().setAnonUserId("anon").setLogUserId("log"))
+                .setViewId("view")
+                .setSessionId("sess")
+                .setViewId("view")
+                .setRequestId("req")
+                .setClientRequestId("creq")
+                .build(),
+            errorLogger);
+
     assertEquals(
-        "find me in request",
-        FlatUtil.getRequestId(
-            JoinedEvent.newBuilder()
-                .setIds(
-                    JoinedIdentifiers.newBuilder()
-                        .setViewId("view1")
-                        .setRequestId("")
-                        .setInsertionId("insertion2"))
-                .setRequest(Request.newBuilder().setRequestId("find me in request"))
-                .setAction(Action.getDefaultInstance())
-                .build()));
+        JoinedImpression.newBuilder()
+            .setIds(
+                JoinedIdentifiers.newBuilder()
+                    .setAnonUserId("anon")
+                    .setLogUserId("log")
+                    .setSessionId("sess")
+                    .setViewId("view")
+                    .setRequestId("req"))
+            .setRequest(Request.newBuilder().setClientRequestId("creq"))
+            .build(),
+        mergedBuilder.build());
+  }
+
+  // TODO - add tests for when values already exist.
+  @Test
+  public void setFlatImpression() {
+    JoinedImpression.Builder event = JoinedImpression.newBuilder();
+    Consumer<MismatchError> errorLogger = Mockito.mock(Consumer.class);
+    JoinedImpression.Builder mergedBuilder =
+        FlatUtil.setFlatImpression(
+            event,
+            Impression.newBuilder()
+                .setUserInfo(UserInfo.newBuilder().setAnonUserId("anon").setLogUserId("log"))
+                .setViewId("view")
+                .setSessionId("sess")
+                .setViewId("view")
+                .setRequestId("req")
+                .setInsertionId("ins")
+                .setImpressionId("imp")
+                .setContentId("cont")
+                .build(),
+            errorLogger);
+
     assertEquals(
-        "find me in action",
-        FlatUtil.getRequestId(
-            JoinedEvent.newBuilder()
-                .setIds(
-                    JoinedIdentifiers.newBuilder()
-                        .setViewId("view1")
-                        .setRequestId("")
-                        .setInsertionId("insertion2"))
-                .setRequest(Request.getDefaultInstance())
-                .setAction(Action.newBuilder().setRequestId("find me in action"))
-                .build()));
+        JoinedImpression.newBuilder()
+            .setIds(
+                JoinedIdentifiers.newBuilder()
+                    .setAnonUserId("anon")
+                    .setLogUserId("log")
+                    .setSessionId("sess")
+                    .setViewId("view")
+                    .setRequestId("req")
+                    .setInsertionId("ins")
+                    .setImpressionId("imp"))
+            .setImpression(Impression.newBuilder().setContentId("cont"))
+            .build(),
+        mergedBuilder.build());
+  }
+
+  @Test
+  public void getContentIdPreferAction() {
+    AttributedAction.Builder builder = AttributedAction.newBuilder();
+    assertEquals("", FlatUtil.getContentIdPreferAction(builder.clone().build()));
+    builder
+        .getTouchpointBuilder()
+        .getJoinedImpressionBuilder()
+        .setResponseInsertion(Insertion.newBuilder().setContentId("ResIns.content"));
+    assertEquals("ResIns.content", FlatUtil.getContentIdPreferAction(builder.clone().build()));
+    builder.getActionBuilder().setContentId("Act.content");
+    assertEquals("Act.content", FlatUtil.getContentIdPreferAction(builder.clone().build()));
+    builder
+        .getActionBuilder()
+        .setSingleCartContent(CartContent.newBuilder().setContentId("Act.single_cart_content"));
+    assertEquals(
+        "Act.single_cart_content", FlatUtil.getContentIdPreferAction(builder.clone().build()));
   }
 
   // Instead of testing all mismatches, just test one.
   @Test
   public void mismatchErrorLogger() {
-    BiConsumer<OutputTag<MismatchError>, MismatchError> errorLogger =
-        Mockito.mock(BiConsumer.class);
+    Consumer<MismatchError> errorLogger = Mockito.mock(Consumer.class);
     FlatUtil.setFlatImpression(
-        JoinedEvent.newBuilder()
+        JoinedImpression.newBuilder()
             .setIds(
                 JoinedIdentifiers.newBuilder()
                     .setPlatformId(1L)
@@ -88,7 +146,6 @@ public class FlatUtilTest {
         errorLogger);
     verify(errorLogger)
         .accept(
-            any(),
             eq(
                 MismatchError.newBuilder()
                     .setRecordType(RecordType.IMPRESSION)
@@ -109,10 +166,10 @@ public class FlatUtilTest {
 
   @Test
   public void hasIgnoreUsage_joinedEvent() {
-    assertFalse(FlatUtil.hasIgnoreUsage(JoinedEvent.getDefaultInstance()));
+    assertFalse(FlatUtil.hasIgnoreUsage(JoinedImpression.getDefaultInstance()));
     assertTrue(
         FlatUtil.hasIgnoreUsage(
-            JoinedEvent.newBuilder()
+            JoinedImpression.newBuilder()
                 .setRequest(
                     Request.newBuilder().setUserInfo(UserInfo.newBuilder().setIgnoreUsage(true)))
                 .build()));
@@ -131,28 +188,42 @@ public class FlatUtilTest {
 
   @Test
   public void createFlatResponseInsertion_primaryKeys() {
-    JoinedEvent.Builder imp = JoinedEvent.newBuilder();
-    imp.getIdsBuilder().setImpressionId("imp_id");
-    JoinedEvent.Builder act = JoinedEvent.newBuilder();
+    JoinedImpression.Builder imp = JoinedImpression.newBuilder();
+    imp.getIdsBuilder().setInsertionId("ins_id").setImpressionId("imp_id");
+    AttributedAction.Builder act = AttributedAction.newBuilder();
     act.getActionBuilder().setActionId("act_id");
     FlatResponseInsertion.Builder actual =
         FlatUtil.createFlatResponseInsertion(
             ImmutableList.of(imp.build()), ImmutableList.of(act.build()));
+    assertEquals("ins_id", actual.getIds().getInsertionId());
     assertEquals("imp_id", actual.getImpression(0).getImpressionId());
-    assertEquals("act_id", actual.getAction(0).getActionId());
+    assertEquals("act_id", actual.getAttributedAction(0).getAction().getActionId());
   }
 
+  // This is currently an unsupported corner case.
+  // The unit test is more to make sure the utility function can handle it.
   @Test
-  public void getCountAggValue_impression() {
-    JoinedEvent.Builder joinedImpression = JoinedEvent.newBuilder();
-    joinedImpression.getImpressionBuilder().setImpressionId("imp1");
-    assertEquals(AggMetric.COUNT_IMPRESSION, FlatUtil.getAggMetricValue(joinedImpression.build()));
+  public void createFlatResponseInsertion_noJoinedImpressions() {
+    AttributedAction.Builder act = AttributedAction.newBuilder();
+    act.getActionBuilder().setActionId("act_id");
+    act.getTouchpointBuilder()
+        .getJoinedImpressionBuilder()
+        .getIdsBuilder()
+        .setInsertionId("ins_id")
+        .setImpressionId("imp_id");
+    FlatResponseInsertion.Builder actual =
+        FlatUtil.createFlatResponseInsertion(ImmutableList.of(), ImmutableList.of(act.build()));
+    assertEquals("ins_id", actual.getIds().getInsertionId());
+    // FlatResponseInsertion.ids.impression_id should not be filled in since this record represents
+    // an Insertion.
+    assertEquals("", actual.getIds().getImpressionId());
+    assertEquals("act_id", actual.getAttributedAction(0).getAction().getActionId());
   }
 
   @ParameterizedTest
   @EnumSource(ActionType.class)
   public void getCountAggValue_actionTypes(ActionType actionType) {
-    AggMetric value = FlatUtil.getAggMetricValue(createJoinedAction(actionType));
+    AggMetric value = FlatUtil.getAggMetricValue(createAttributedAction(actionType));
     switch (actionType) {
       case UNRECOGNIZED:
       case UNKNOWN_ACTION_TYPE:
@@ -160,7 +231,7 @@ public class FlatUtilTest {
         assertEquals(AggMetric.UNKNOWN_AGGREGATE, value);
         break;
       default:
-        assertTrue(value.name().contains(actionType.name()));
+        assertThat(value.name()).contains(actionType.name());
     }
   }
 
@@ -179,11 +250,12 @@ public class FlatUtilTest {
     "call me ishmael. some years ago--never mind how long precisely-, 719e8cca0f55a204",
   })
   public void getQueryHash(String query, String expectedHex) {
-    JoinedEvent.Builder event = JoinedEvent.newBuilder();
+    Request.Builder builder = Request.newBuilder();
     if (query != null) {
-      event.getRequestBuilder().setSearchQuery(query);
+      builder.setSearchQuery(query);
     }
-    assertEquals(Long.parseUnsignedLong(expectedHex, 16), FlatUtil.getQueryHash(event.build()));
+    Request request = builder.build();
+    assertEquals(Long.parseUnsignedLong(expectedHex, 16), FlatUtil.getQueryHash(request));
   }
 
   @ParameterizedTest
@@ -200,16 +272,16 @@ public class FlatUtilTest {
     "call me ishmael. some years ago--never mind how long precisely-, 719e8cca0f55a204",
   })
   public void getQueryHashHex(String query, String expectedHex) {
-    JoinedEvent.Builder event = JoinedEvent.newBuilder();
+    Request.Builder builder = Request.newBuilder();
     if (query != null) {
-      event.getRequestBuilder().setSearchQuery(query);
+      builder.setSearchQuery(query);
     }
-    assertEquals(expectedHex, FlatUtil.getQueryHashHex(event.build()));
+    Request request = builder.build();
+    assertEquals(expectedHex, FlatUtil.getQueryHashHex(request));
   }
 
   @Test
-  public void getQueryHashEmptyString() {
-    assertEquals(
-        FlatUtil.EMPTY_STRING_HASH, FlatUtil.getQueryHash(JoinedEvent.getDefaultInstance()));
+  public void getQueryHash_EmptyString() {
+    assertEquals(FlatUtil.EMPTY_STRING_HASH, FlatUtil.getQueryHash(Request.getDefaultInstance()));
   }
 }

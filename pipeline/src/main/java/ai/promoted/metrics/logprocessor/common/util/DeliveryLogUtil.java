@@ -53,28 +53,28 @@ public class DeliveryLogUtil {
     return getTrafficPriority(trafficType) > 1;
   }
 
-  public static String getLogUserId(DeliveryLog deliveryLog) {
-    return deliveryLog.getRequest().getUserInfo().getLogUserId();
+  public static String getAnonUserId(DeliveryLog deliveryLog) {
+    return deliveryLog.getRequest().getUserInfo().getAnonUserId();
   }
 
-  public static String getLogUserId(CombinedDeliveryLog combinedDeliveryLog) {
+  public static String getAnonUserId(CombinedDeliveryLog combinedDeliveryLog) {
     // Temporary logging code to catch potential key issue.
     // TODO - remove this condition after running in production for a bit.
     if (combinedDeliveryLog.hasApi() && combinedDeliveryLog.hasSdk()) {
-      String apiLogUserId = getLogUserId(combinedDeliveryLog.getApi());
-      String sdkLogUserId = getLogUserId(combinedDeliveryLog.getSdk());
-      if (!Objects.equal(apiLogUserId, sdkLogUserId)) {
-        LOGGER.error(
-            "DeliveryLogUtil.getLogUserId(CombinedDeliveryLog) has mismatching platformIds, api.logUserId={}, sdk.logUserId={}",
-            apiLogUserId,
-            sdkLogUserId);
+      String apiAnonUserId = getAnonUserId(combinedDeliveryLog.getApi());
+      String sdkAnonUserId = getAnonUserId(combinedDeliveryLog.getSdk());
+      if (!Objects.equal(apiAnonUserId, sdkAnonUserId)) {
+        LOGGER.warn(
+            "DeliveryLogUtil.getAnonUserId(CombinedDeliveryLog) has mismatching platformIds, api.anonUserId={}, sdk.anonUserId={}",
+            apiAnonUserId,
+            sdkAnonUserId);
       }
-      if (!apiLogUserId.isEmpty()) {
-        return apiLogUserId;
+      if (!apiAnonUserId.isEmpty()) {
+        return apiAnonUserId;
       }
-      return sdkLogUserId;
+      return sdkAnonUserId;
     }
-    return getLogUserId(getDeliveryLog(combinedDeliveryLog));
+    return getAnonUserId(getDeliveryLog(combinedDeliveryLog));
   }
 
   // It's a little confusing for user_info to be retrieved from Request and platformId from the
@@ -109,10 +109,6 @@ public class DeliveryLogUtil {
 
   public static String getViewId(CombinedDeliveryLog combinedDeliveryLog) {
     return getRequest(combinedDeliveryLog).getViewId();
-  }
-
-  public static long getLogTimestamp(CombinedDeliveryLog combinedDeliveryLog) {
-    return getRequest(combinedDeliveryLog).getTiming().getLogTimestamp();
   }
 
   public static DeliveryLog getDeliveryLog(CombinedDeliveryLog combinedDeliveryLog) {

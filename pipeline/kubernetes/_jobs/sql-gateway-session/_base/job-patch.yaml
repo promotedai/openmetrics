@@ -1,0 +1,10 @@
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: flink-job
+spec:
+  image: bazel/pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/sqlrunner:SqlRunnerJob_image
+  flinkConfiguration:
+    taskmanager.numberOfTaskSlots: "2"
+    taskmanager.memory.managed.fraction: "0.1"
+    taskmanager.memory.network.fraction: "0.1"

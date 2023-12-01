@@ -1,59 +1,67 @@
 package ai.promoted.metrics.logprocessor.job.counter;
 
-import static ai.promoted.metrics.logprocessor.job.counter.CounterKeys.CONTENT_EVENT_DEVICE_KEY;
-import static ai.promoted.metrics.logprocessor.job.counter.CounterKeys.CONTENT_QUERY_EVENT_KEY;
-import static ai.promoted.metrics.logprocessor.job.counter.CounterKeys.CountKey;
-import static ai.promoted.metrics.logprocessor.job.counter.CounterKeys.GLOBAL_EVENT_DEVICE_KEY;
-import static ai.promoted.metrics.logprocessor.job.counter.CounterKeys.JoinedEventCountKey;
-import static ai.promoted.metrics.logprocessor.job.counter.CounterKeys.LAST_LOG_USER_CONTENT_KEY;
-import static ai.promoted.metrics.logprocessor.job.counter.CounterKeys.LAST_LOG_USER_QUERY_KEY;
-import static ai.promoted.metrics.logprocessor.job.counter.CounterKeys.LAST_USER_CONTENT_KEY;
-import static ai.promoted.metrics.logprocessor.job.counter.CounterKeys.LAST_USER_QUERY_KEY;
-import static ai.promoted.metrics.logprocessor.job.counter.CounterKeys.LOG_USER_EVENT_KEY;
-import static ai.promoted.metrics.logprocessor.job.counter.CounterKeys.LastUserQueryKey;
-import static ai.promoted.metrics.logprocessor.job.counter.CounterKeys.QUERY_EVENT_KEY;
-import static ai.promoted.metrics.logprocessor.job.counter.CounterKeys.QueryEventCountKey;
-import static ai.promoted.metrics.logprocessor.job.counter.CounterKeys.USER_EVENT_KEY;
+import static ai.promoted.metrics.logprocessor.common.counter.CounterKeys.CountKey;
+import static ai.promoted.metrics.logprocessor.common.counter.CounterKeys.JoinedEventCountKey;
+import static ai.promoted.metrics.logprocessor.common.counter.CounterKeys.QueryEventCountKey;
 import static com.google.common.base.Preconditions.checkState;
 
 import ai.promoted.metrics.common.LogUserUser;
+import ai.promoted.metrics.logprocessor.common.counter.CounterKeys;
+import ai.promoted.metrics.logprocessor.common.counter.CounterKeys.BaseLastUserQueryKey;
+import ai.promoted.metrics.logprocessor.common.counter.CounterKeys.LastUserEventKey;
 import ai.promoted.metrics.logprocessor.common.counter.LastTimeAggResult;
-import ai.promoted.metrics.logprocessor.common.counter.LastUserEventRedisHashSupplier;
+import ai.promoted.metrics.logprocessor.common.counter.UserEventRedisHashSupplier;
 import ai.promoted.metrics.logprocessor.common.counter.WindowAggResult;
 import ai.promoted.metrics.logprocessor.common.functions.CounterUtil;
 import ai.promoted.metrics.logprocessor.common.functions.LastTimeAndCount;
 import ai.promoted.metrics.logprocessor.common.functions.RightSeenOutput;
-import ai.promoted.metrics.logprocessor.common.functions.SerializableBiFunction;
+import ai.promoted.metrics.logprocessor.common.functions.SlidingCounter;
 import ai.promoted.metrics.logprocessor.common.functions.SlidingDailyCounter;
 import ai.promoted.metrics.logprocessor.common.functions.SlidingHourlyCounter;
+import ai.promoted.metrics.logprocessor.common.functions.SlidingSixDayCounter;
 import ai.promoted.metrics.logprocessor.common.functions.TemporalJoinFunction;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableBiFunction;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableFunction;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableToLongFunction;
 import ai.promoted.metrics.logprocessor.common.functions.sink.RedisSink;
+import ai.promoted.metrics.logprocessor.common.functions.sink.RedisSink.RedisSinkCommand;
 import ai.promoted.metrics.logprocessor.common.functions.sink.RedisStandaloneSink;
 import ai.promoted.metrics.logprocessor.common.job.BaseFlinkJob;
-import ai.promoted.metrics.logprocessor.common.job.FlatOutputKafka;
+import ai.promoted.metrics.logprocessor.common.job.DirectFlatOutputKafkaSource;
+import ai.promoted.metrics.logprocessor.common.job.DirectValidatedEventKafkaSource;
+import ai.promoted.metrics.logprocessor.common.job.FlatOutputKafkaSegment;
+import ai.promoted.metrics.logprocessor.common.job.FlatOutputKafkaSource;
+import ai.promoted.metrics.logprocessor.common.job.FlinkSegment;
 import ai.promoted.metrics.logprocessor.common.job.KafkaSegment;
-import ai.promoted.metrics.logprocessor.common.job.RawOutputKafka;
+import ai.promoted.metrics.logprocessor.common.job.KafkaSourceSegment;
+import ai.promoted.metrics.logprocessor.common.job.KeepFirstSegment;
 import ai.promoted.metrics.logprocessor.common.job.S3FileOutput;
 import ai.promoted.metrics.logprocessor.common.job.S3Segment;
+import ai.promoted.metrics.logprocessor.common.job.ValidatedEventKafkaSegment;
+import ai.promoted.metrics.logprocessor.common.queryablestate.StreamGraphRewriter;
+import ai.promoted.metrics.logprocessor.common.util.CachingSupplier;
 import ai.promoted.metrics.logprocessor.common.util.FlatUtil;
 import ai.promoted.metrics.logprocessor.common.util.StringUtil;
-import ai.promoted.metrics.logprocessor.job.counter.CounterKeys.LastUserEventKey;
-import ai.promoted.proto.common.Browser;
-import ai.promoted.proto.common.Device;
-import ai.promoted.proto.delivery.Request;
-import ai.promoted.proto.event.Action;
-import ai.promoted.proto.event.Impression;
-import ai.promoted.proto.event.JoinedEvent;
+import ai.promoted.proto.event.AttributedAction;
+import ai.promoted.proto.event.JoinedImpression;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import com.google.protobuf.GeneratedMessageV3;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import org.apache.flink.api.common.functions.AggregateFunction;
+import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
@@ -68,9 +76,9 @@ import org.apache.flink.streaming.api.datastream.KeyedStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
-import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.streaming.api.functions.sink.SinkFunction;
 import org.apache.flink.streaming.api.functions.windowing.ProcessWindowFunction;
+import org.apache.flink.streaming.api.graph.StreamGraph;
 import org.apache.flink.streaming.api.windowing.assigners.SlidingEventTimeWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
@@ -94,25 +102,50 @@ import picocli.CommandLine.Option;
 public class CounterJob extends BaseFlinkJob {
   public static final Joiner CSV = Joiner.on(",");
   private static final Logger LOGGER = LogManager.getLogger(CounterJob.class);
-  @CommandLine.Mixin public final KafkaSegment kafkaSegment = new KafkaSegment(this);
+  @CommandLine.Mixin public final KafkaSegment kafkaSegment = new KafkaSegment();
 
   @CommandLine.Mixin
-  public final FlatOutputKafka flatOutputKafka = new FlatOutputKafka(kafkaSegment);
+  public final KafkaSourceSegment kafkaSourceSegment = new KafkaSourceSegment(this, kafkaSegment);
 
-  @CommandLine.Mixin public final RawOutputKafka rawOutputKafka = new RawOutputKafka(kafkaSegment);
+  @CommandLine.Mixin
+  public final FlatOutputKafkaSegment flatOutputKafkaSegment =
+      new FlatOutputKafkaSegment(this, kafkaSegment);
+
+  @CommandLine.Mixin
+  public final DirectFlatOutputKafkaSource directFlatOutputKafkaSource =
+      new DirectFlatOutputKafkaSource(kafkaSourceSegment, flatOutputKafkaSegment);
+
+  @CommandLine.Mixin public final KeepFirstSegment keepFirstSegment = new KeepFirstSegment(this);
+
+  private final FlatOutputKafkaSource flatOutputKafkaSource =
+      new FlatOutputKafkaSource(
+          directFlatOutputKafkaSource, flatOutputKafkaSegment, keepFirstSegment);
+
+  public final ValidatedEventKafkaSegment validatedEventKafkaSegment =
+      new ValidatedEventKafkaSegment(this, kafkaSegment);
+
+  @CommandLine.Mixin
+  public final DirectValidatedEventKafkaSource directValidatedEventKafkaSource =
+      new DirectValidatedEventKafkaSource(kafkaSourceSegment, validatedEventKafkaSegment);
 
   @CommandLine.Mixin public final S3Segment s3 = new S3Segment(this);
   @CommandLine.Mixin public final S3FileOutput s3FileOutput = new S3FileOutput(this, s3);
 
   @Option(
-      names = {"--overrideInputLabel"},
-      defaultValue = "",
-      description =
-          "Overrides the Kafka input label "
-              + "(defaults to --jobLabel).  Can be used for cases like --jobLabel='blue.canary' and "
-              + "--overrideInputLabel='blue'.  Empty string means no override.  Cannot be used to override to empty "
-              + "string (not useful now).  Defaults to empty string (no override)")
-  public String overrideInputLabel = "";
+      names = {"--countKey"},
+      description = "The CountKeys to run in this job.  Defaults to empty (which runs all)")
+  public Set<String> countKeys = new HashSet<>();
+
+  @Option(
+      names = {"--excludeCountKey"},
+      description = "List of CountKeys to exclude.  Defaults to empty")
+  public Set<String> excludeCountKeys = new HashSet<>();
+
+  @Option(
+      names = {"--no-hourlyQuery"},
+      negatable = true,
+      description = "Disable hourly query-related counters.  " + "Default=true.")
+  public boolean hourlyQuery = true;
 
   @Option(
       names = {"--counterOutputStartTimestamp"},
@@ -124,54 +157,59 @@ public class CounterJob extends BaseFlinkJob {
   public long counterOutputStartTimestamp;
 
   @Option(
-      names = {"--counterBackfillBuffer"},
-      defaultValue = "PT0S",
+      names = {"--counterBackfillBuffer", "--counterResultsBuffer"},
+      defaultValue = "PT6H",
       description =
-          "The time duration to buffer "
-              + "output writes during backfill.  Setting this to PT0S skips buffering.  WARNING: when in use, do NOT "
-              + "point production traffic to the counts as the data is watermark-inconsistent until the job is done "
-              + "backfilling (past the start time of the job).   Defaults to PT0S.")
-  public Duration counterBackfillBuffer = Duration.ZERO;
+          "The time duration to buffer output writes. "
+              + "When a Redis command is delayed for more than 2 times of the buffer size, it will be buffered."
+              + "Used for backfills or delayed jobs. Setting this to PT0S to disable buffering. Defaults to PT6H.")
+  public Duration counterResultsBuffer = Duration.ofHours(6);
 
   @Option(
-      names = {"--globalEventDeviceHourlyEmitWindow"},
+      names = {"--count90d"},
+      defaultValue = "false",
+      description = "Support 90d counters")
+  public boolean count90d = false;
+
+  @Option(
+      names = {"--globalEventDeviceHourlyWindowSlide"},
       defaultValue = "PT15M",
       description =
-          "The emit window "
+          "The window slide "
               + "for globalEventDevice hourly operator.  Default=PT15M.  Java8 Duration parse format.")
-  public Duration globalEventDeviceHourlyEmitWindow = Duration.parse("PT15M");
+  public Duration globalEventDeviceHourlyWindowSlide = Duration.parse("PT15M");
 
   @Option(
-      names = {"--contentEventDeviceHourlyEmitWindow"},
+      names = {"--contentEventDeviceHourlyWindowSlide"},
       defaultValue = "PT15M",
       description =
-          "The emit window "
+          "The window slide "
               + "for contentEventDevice hourly operator.  Default=PT15M.  Java8 Duration parse format.")
-  public Duration contentEventDeviceHourlyEmitWindow = Duration.parse("PT15M");
+  public Duration contentEventDeviceHourlyWindowSlide = Duration.parse("PT15M");
 
   @Option(
-      names = {"--queryEventHourlyEmitWindow"},
+      names = {"--queryEventHourlyWindowSlide"},
       defaultValue = "PT15M",
       description =
-          "The emit window for "
+          "The window slide for "
               + "query-related hourly operators.  Default=PT15M.  Java8 Duration parse format.")
-  public Duration queryEventHourlyEmitWindow = Duration.parse("PT15M");
+  public Duration queryEventHourlyWindowSlide = Duration.parse("PT15M");
 
   @Option(
-      names = {"--logUserEventHourlyEmitWindow"},
+      names = {"--logUserEventHourlyWindowSlide"},
       defaultValue = "PT15M",
       description =
-          "The emit window for "
+          "The window slide for "
               + "logUserEvent hourly operator.  Default=PT15M.  Java8 Duration parse format.")
-  public Duration logUserEventHourlyEmitWindow = Duration.parse("PT15M");
+  public Duration logUserEventHourlyWindowSlide = Duration.parse("PT15M");
 
   @Option(
-      names = {"--userEventHourlyEmitWindow"},
+      names = {"--userEventHourlyWindowSlide"},
       defaultValue = "PT15M",
       description =
-          "The emit window for "
+          "The window slide for "
               + "userEvent hourly operator.  Default=PT15M.  Java8 Duration parse format.")
-  public Duration userEventHourlyEmitWindow = Duration.parse("PT15M");
+  public Duration userEventHourlyWindowSlide = Duration.parse("PT15M");
 
   @Option(
       names = {"--logUserLastTimeAndCountTtl"},
@@ -217,24 +255,6 @@ public class CounterJob extends BaseFlinkJob {
   public int searchQueryWindowMinThreshold = 1000;
 
   @Option(
-      names = {"--no-queryCounts"},
-      negatable = true,
-      description = "Disable query-related counters (query, " + "query x content).  Default=true.")
-  public boolean queryCounts = true;
-
-  @Option(
-      names = {"--no-lastUserQueryEvents"},
-      negatable = true,
-      description = "Disable last user x query event " + "streams.  Default=true.")
-  public boolean lastUserQueryEvents = true;
-
-  @Option(
-      names = {"--no-hourlyQuery"},
-      negatable = true,
-      description = "Disable hourly query-related counters.  " + "Default=true.")
-  public boolean hourlyQuery = true;
-
-  @Option(
       names = {"--wipe"},
       negatable = true,
       description =
@@ -266,323 +286,583 @@ public class CounterJob extends BaseFlinkJob {
               + "Defaults to -1.")
   long counterOutputStopTimestamp = -1;
 
+  @Option(
+      names = {"--temporalJoinFirstDimensionDelay"},
+      defaultValue = "PT15M",
+      description =
+          "The allowed delay for the first dimension row in temporal join. Fact events will wait more time before seeing the first dimension row.  "
+              + "Defaults to PT15M.")
+  Duration temporalJoinFirstDimensionDelay = Duration.parse("PT15M");
+
+  @Option(
+      names = {"--enableQueryableState"},
+      negatable = true,
+      description = "Whether to enable queryable state. Default = false")
+  public boolean enableQueryableState = false;
+
   public static void main(String[] args) {
-    int exitCode = new CommandLine(new CounterJob()).execute(args);
-    System.exit(exitCode);
+    executeMain(new CounterJob(), args);
   }
 
-  // TODO - delete this temporary optimization.  This is not safe.
-  /** For optimizing storage. */
-  private static JoinedEvent copyOnlyTheRequiredFields(JoinedEvent event) {
-    Request.Builder requestBuilder =
-        Request.newBuilder().setSearchQuery(event.getRequest().getSearchQuery());
-    String userAgent = event.getRequest().getDevice().getBrowser().getUserAgent();
-    if (!userAgent.isEmpty()) {
-      requestBuilder.setDevice(
-          Device.newBuilder().setBrowser(Browser.newBuilder().setUserAgent(userAgent)));
-    }
-    JoinedEvent.Builder builder =
-        JoinedEvent.newBuilder()
-            .setIds(event.getIds())
-            .setTiming(event.getTiming())
-            .setRequest(requestBuilder)
-            .setResponseInsertion(event.getResponseInsertion());
+  // For now, just use JoinedImpressions.
+  // Make a static function to avoid unnecessary serialization.
+  private static KeyedStream<Long, Long> getTopQueriesStream(
+      SingleOutputStreamOperator<JoinedImpression> logUserJoinImpressions,
+      SingleOutputStreamOperator<AttributedAction> logUserAttributedActions,
+      CounterJob job) {
 
-    // Insertion.newBuilder().setContentId(event.getResponseInsertion().getContentId()));
-    // The test data can look at JoinedEvent.User so copy that over for now.  The test data seems a
-    // little broken.
-    if (event.hasUser()) {
-      builder.setUser(event.getUser());
-    }
+    SingleOutputStreamOperator<Long> impressionQueryHashes =
+        toQueryHash(
+            logUserJoinImpressions,
+            "impression",
+            FlatUtil::getQueryStringLowered,
+            job.searchQueryLengthLimit,
+            job);
+    SingleOutputStreamOperator<Long> actionQueryHashes =
+        toQueryHash(
+            logUserAttributedActions,
+            "action",
+            FlatUtil::getQueryStringLowered,
+            job.searchQueryLengthLimit,
+            job);
 
-    // In case contentId is set here.  responseInsertion should have it but just in case.
-    // builder.setImpression(event.getImpression());
-    if (!event.getImpression().getContentId().isEmpty()) {
-      builder.setImpression(
-          Impression.newBuilder().setContentId(event.getImpression().getContentId()));
-    }
-    if (event.hasAction()) {
-      // The tests fail if we don't copy the whole action.
-      // TODO - figure out why.
-      // builder.setAction(event.getAction());
-      Action action = event.getAction();
-      Action.Builder actionBuilder =
-          Action.newBuilder()
-              .setTiming(event.getTiming())
-              .setActionType(action.getActionType())
-              .setCustomActionType(action.getCustomActionType());
-      if (!action.getContentId().isEmpty()) {
-        actionBuilder.setContentId(action.getContentId());
-      }
-      builder.setAction(actionBuilder);
-    }
-    return builder.build();
+    int searchQueryWindowMinThreshold = job.searchQueryWindowMinThreshold;
+    return impressionQueryHashes
+        .union(actionQueryHashes)
+        .keyBy(h -> h)
+        .window(
+            SlidingEventTimeWindows.of(
+                Time.milliseconds(job.searchQueryWindowSize.toMillis()),
+                Time.milliseconds(job.searchQueryWindowSlide.toMillis())))
+        .aggregate(
+            new AggregateFunction<Long, Long, Long>() {
+              @Override
+              public Long createAccumulator() {
+                return 0L;
+              }
+
+              @Override
+              public Long add(Long in, Long sum) {
+                // Q - Is this because we're counting and we want to ignore the value?
+                sum += 1;
+                return sum;
+              }
+
+              @Override
+              public Long getResult(Long sum) {
+                return sum;
+              }
+
+              @Override
+              public Long merge(Long a, Long b) {
+                return a + b;
+              }
+            },
+            new ProcessWindowFunction<Long, Long, Long, TimeWindow>() {
+              @Override
+              public void process(Long in, Context ctx, Iterable<Long> sums, Collector<Long> out) {
+                // TODO: remove when comfortable w/ behavior
+                checkState(Iterables.size(sums) == 1);
+                if (sums.iterator().next() >= searchQueryWindowMinThreshold) {
+                  LOGGER.trace("{} emit: {}", ctx.window().maxTimestamp(), in);
+                  out.collect(in);
+                }
+              }
+            })
+        .uid("emit-top-queries")
+        .name("emit-top-queries")
+        .keyBy(h -> h);
+  }
+
+  private static <T> SingleOutputStreamOperator<Long> toQueryHash(
+      SingleOutputStreamOperator<T> events,
+      String eventName,
+      MapFunction<T, String> toQuery,
+      long searchQueryLengthLimit,
+      CounterJob job) {
+    SingleOutputStreamOperator<String> queries =
+        job.add(events.map(toQuery), "lower-" + eventName + "-query-string");
+    queries =
+        job.add(
+            queries.filter(s -> !StringUtil.isBlank(s) && s.length() <= searchQueryLengthLimit),
+            "length-filter-" + eventName + "-query");
+    return job.add(queries.map(FlatUtil::getQueryHash), "hash-" + eventName + "-query");
+  }
+
+  /** Enriches join event stream with logUser-user event stream by a temporal join. */
+  private SingleOutputStreamOperator<JoinedImpression> enrichJoinedImpressionsWithLogUserUser(
+      DataStream<JoinedImpression> joinedImpressionStream,
+      KeyedStream<LogUserUser, Tuple2<Long, String>> logUserUserByLogUserId,
+      CounterJob job) {
+    return job.add(
+        joinedImpressionStream
+            .keyBy(
+                new KeySelector<JoinedImpression, Tuple2<Long, String>>() {
+                  @Override
+                  public Tuple2<Long, String> getKey(JoinedImpression joinedImpression) {
+                    return Tuple2.of(
+                        joinedImpression.getIds().getPlatformId(),
+                        joinedImpression.getIds().getLogUserId());
+                  }
+                })
+            .connect(logUserUserByLogUserId)
+            .process(
+                new TemporalJoinFunction<>(
+                    TypeInformation.of(JoinedImpression.class),
+                    TypeInformation.of(LogUserUser.class),
+                    (SerializableBiFunction<JoinedImpression, LogUserUser, JoinedImpression>)
+                        (joinedEvent, logUserUser) -> {
+                          JoinedImpression.Builder builder = joinedEvent.toBuilder();
+                          builder.getIdsBuilder().setUserId(logUserUser.getUserId());
+                          return builder.build();
+                        },
+                    true,
+                    null,
+                    temporalJoinFirstDimensionDelay.toMillis()))
+            .returns(TypeInformation.of(JoinedImpression.class)),
+        "enrich-joined-impression-with-log-user-user");
+  }
+
+  /** Enriches join event stream with logUser-user event stream by a temporal join. */
+  private SingleOutputStreamOperator<AttributedAction> enrichAttributedActionsWithLogUserUser(
+      DataStream<AttributedAction> attributedActionStream,
+      KeyedStream<LogUserUser, Tuple2<Long, String>> logUserUserByLogUserId,
+      CounterJob job) {
+    return job.add(
+        attributedActionStream
+            .keyBy(
+                new KeySelector<AttributedAction, Tuple2<Long, String>>() {
+                  @Override
+                  public Tuple2<Long, String> getKey(AttributedAction attributedAction) {
+                    return new Tuple2<>(
+                        attributedAction.getAction().getPlatformId(),
+                        attributedAction.getAction().getUserInfo().getLogUserId());
+                  }
+                })
+            .connect(logUserUserByLogUserId)
+            .process(
+                new TemporalJoinFunction<>(
+                    TypeInformation.of(AttributedAction.class),
+                    TypeInformation.of(LogUserUser.class),
+                    (SerializableBiFunction<AttributedAction, LogUserUser, AttributedAction>)
+                        (attributedAction, logUserUser) -> {
+                          AttributedAction.Builder builder = attributedAction.toBuilder();
+                          // CounterKeys looks at this field for auth userID counts.
+                          builder
+                              .getTouchpointBuilder()
+                              .getJoinedImpressionBuilder()
+                              .getIdsBuilder()
+                              .setUserId(logUserUser.getUserId());
+                          return builder.build();
+                        },
+                    true,
+                    null,
+                    temporalJoinFirstDimensionDelay.toMillis()))
+            .returns(TypeInformation.of(AttributedAction.class)),
+        "enrich-attributed-action-with-log-user-user");
   }
 
   @Override
-  public Integer call() throws Exception {
-    validateArgs();
-    startCounterJob();
-    return 0;
+  public Set<FlinkSegment> getInnerFlinkSegments() {
+    return ImmutableSet.of(
+        kafkaSegment,
+        kafkaSourceSegment,
+        flatOutputKafkaSegment,
+        directFlatOutputKafkaSource,
+        flatOutputKafkaSource,
+        validatedEventKafkaSegment,
+        directValidatedEventKafkaSource,
+        s3,
+        s3FileOutput);
   }
 
   @Override
   public void validateArgs() {
-    kafkaSegment.validateArgs();
-    flatOutputKafka.validateArgs();
-    s3.validateArgs();
-    s3FileOutput.validateArgs();
+    super.validateArgs();
     if (StringUtil.isBlank(shardedEndpoints) && StringUtil.isBlank(unshardedEndpoint)) {
       throw new IllegalArgumentException("--shardedEndpoints or --unshardedEndpoint must be given");
     }
+    Preconditions.checkArgument(
+        countKeys.isEmpty() || excludeCountKeys.isEmpty(),
+        "Both --countKey and --excludeCountKey cannot both be specified");
   }
 
   @Override
-  public List<Class<? extends GeneratedMessageV3>> getProtoClasses() {
-    return ImmutableList.<Class<? extends GeneratedMessageV3>>builder()
-        .addAll(kafkaSegment.getProtoClasses())
-        .addAll(flatOutputKafka.getProtoClasses())
-        .addAll(s3.getProtoClasses())
-        .addAll(s3FileOutput.getProtoClasses())
-        .build();
-  }
-
-  private void startCounterJob() throws Exception {
+  protected void startJob() throws Exception {
     StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
     configureExecutionEnvironment(env, parallelism, maxParallelism);
 
-    // Create a local sink for sink preparation b/c flink's object lifecycle interaction is weird.
-    prepareSink(newRedisSink());
-
     // TODO: make this pattern as part of BaseFlinkJob.
-    defineJob(
-        flatOutputKafka.getJoinedEventSource(
-            env,
-            toKafkaConsumerGroupId("countEvents"),
-            flatOutputKafka.getJoinedEventTopic(getInputLabel()),
-            null),
-        rawOutputKafka.getLogUserUserSource(
-            env,
-            toKafkaConsumerGroupId("countEvents-user"),
-            rawOutputKafka.getLogUserUserTopic(getInputLabel()),
-            null),
-        newRedisSink());
-
-    env.execute(getJobName());
-  }
-
-  public String getInputLabel() {
-    return StringUtil.firstNotEmpty(overrideInputLabel, getJobLabel());
+    StreamGraph graph =
+        defineJob(
+            flatOutputKafkaSource.getJoinedImpressionSource(
+                env, toKafkaConsumerGroupId("countEvents")),
+            flatOutputKafkaSource.getAttributedActionSource(
+                env, toKafkaConsumerGroupId("countEvents")),
+            directValidatedEventKafkaSource.getLogUserUserSource(
+                env, toKafkaConsumerGroupId("countEvents-user")),
+            newRedisSink());
+    env.execute(graph);
   }
 
   @Override
-  protected String getJobName() {
-    return prefixJobLabel("counter");
+  protected String getDefaultBaseJobName() {
+    return "counter";
   }
 
   private RedisSink newRedisSink() {
     return StringUtil.isBlank(shardedEndpoints)
-        ? new RedisStandaloneSink(unshardedEndpoint)
-        : new RedisSink(shardedEndpoints);
+        ? new RedisStandaloneSink(unshardedEndpoint, createMetadataCommands())
+        : new RedisSink(shardedEndpoints, createMetadataCommands());
   }
 
-  public void defineJob(
-      SingleOutputStreamOperator<JoinedEvent> logUserJoinEvents,
+  public StreamGraph defineJob(
+      SingleOutputStreamOperator<JoinedImpression> inputLogUserJoinImpressions,
+      SingleOutputStreamOperator<AttributedAction> inputLogUserAllAttributedActions,
       SingleOutputStreamOperator<LogUserUser> logUserUserEvents,
-      SinkFunction<RedisSink.Command> redisSink) {
-    final long maxQueryLength = searchQueryLengthLimit;
-    final long minCountThreshold = searchQueryWindowMinThreshold;
+      SinkFunction<RedisSinkCommand> redisSink) {
 
-    SingleOutputStreamOperator<JoinedEvent> joinEventsWithUser =
-        enrichJoinedEventsWithLogUserUser(logUserJoinEvents, logUserUserEvents);
+    // Suppliers are used so avoid initializing sources that are not used (depending on flags).
 
-    KeyedStream<Long, Long> topQueriesStream = null;
-    if (queryCounts || lastUserQueryEvents) {
-      topQueriesStream =
-          logUserJoinEvents
-              .map(FlatUtil::getQueryStringLowered)
-              .uid("lower-query-string")
-              .name("lower-query-string")
-              .filter(s -> !StringUtil.isBlank(s) && s.length() <= maxQueryLength)
-              .uid("length-filter-query")
-              .name("length-filter-query")
-              .map(FlatUtil::getQueryHash)
-              .uid("hash-query")
-              .name("hash-query")
-              .keyBy(h -> h)
-              .window(
-                  SlidingEventTimeWindows.of(
-                      Time.milliseconds(searchQueryWindowSize.toMillis()),
-                      Time.milliseconds(searchQueryWindowSlide.toMillis())))
-              .aggregate(
-                  new AggregateFunction<Long, AtomicLong, AtomicLong>() {
-                    @Override
-                    public AtomicLong createAccumulator() {
-                      return new AtomicLong(0);
-                    }
+    // For now, limit AttributedActions down to the "last touchpoint" model.
+    SingleOutputStreamOperator<AttributedAction> logUserAttributedAction =
+        add(
+            inputLogUserAllAttributedActions.filter(
+                attributedAction -> attributedAction.getAttribution().getModelId() == 1L),
+            "filter-to-last-touchpoint-attribution");
 
-                    @Override
-                    public AtomicLong add(Long in, AtomicLong sum) {
-                      sum.getAndIncrement();
-                      return sum;
-                    }
+    Supplier<KeyedStream<LogUserUser, Tuple2<Long, String>>> logUserUserByLogUserIdSupplier =
+        new CachingSupplier<>() {
+          @Override
+          public KeyedStream<LogUserUser, Tuple2<Long, String>> supplyValue() {
+            return logUserUserEvents.keyBy(
+                new KeySelector<LogUserUser, Tuple2<Long, String>>() {
+                  @Override
+                  public Tuple2<Long, String> getKey(LogUserUser logUserUser) {
+                    return new Tuple2<>(logUserUser.getPlatformId(), logUserUser.getLogUserId());
+                  }
+                });
+          }
+        };
 
-                    @Override
-                    public AtomicLong getResult(AtomicLong sum) {
-                      return sum;
-                    }
+    Supplier<SingleOutputStreamOperator<JoinedImpression>> joinImpressionsWithUser =
+        new CachingSupplier<>() {
+          @Override
+          public SingleOutputStreamOperator<JoinedImpression> supplyValue() {
+            return enrichJoinedImpressionsWithLogUserUser(
+                inputLogUserJoinImpressions, logUserUserByLogUserIdSupplier.get(), CounterJob.this);
+          }
+        };
 
-                    @Override
-                    public AtomicLong merge(AtomicLong a, AtomicLong b) {
-                      a.getAndAdd(b.get());
-                      return a;
-                    }
-                  },
-                  new ProcessWindowFunction<AtomicLong, Long, Long, TimeWindow>() {
-                    @Override
-                    public void process(
-                        Long in, Context ctx, Iterable<AtomicLong> sums, Collector<Long> out) {
-                      // TODO: remove when comfortable w/ behavior
-                      checkState(Iterables.size(sums) == 1);
-                      if (sums.iterator().next().get() >= minCountThreshold) {
-                        LOGGER.trace("{} emit: {}", ctx.window().maxTimestamp(), in);
-                        out.collect(in);
-                      }
-                    }
-                  })
-              .uid("emit-top-queries")
-              .name("emit-top-queries")
-              .keyBy(h -> h);
+    Supplier<SingleOutputStreamOperator<AttributedAction>> joinActionsWithUser =
+        new CachingSupplier<>() {
+          @Override
+          public SingleOutputStreamOperator<AttributedAction> supplyValue() {
+            return enrichAttributedActionsWithLogUserUser(
+                logUserAttributedAction, logUserUserByLogUserIdSupplier.get(), CounterJob.this);
+          }
+        };
+
+    Supplier<KeyedStream<Long, Long>> topQueriesStream =
+        new CachingSupplier<>() {
+          @Override
+          public KeyedStream<Long, Long> supplyValue() {
+            return getTopQueriesStream(
+                inputLogUserJoinImpressions, logUserAttributedAction, CounterJob.this);
+          }
+        };
+
+    List<DataStream<RedisSinkCommand>> outputStreamList = new ArrayList<>();
+
+    CounterKeys keys = getAllCountKeys();
+
+    if (isEnabled(keys.getGlobalEventDeviceKey())) {
+      outputStreamList.add(
+          countJoinedImpressions(
+              keys.getGlobalEventDeviceKey(),
+              inputLogUserJoinImpressions,
+              globalEventDeviceHourlyWindowSlide));
+      outputStreamList.add(
+          countAttributedActions(
+              keys.getGlobalEventDeviceKey(),
+              logUserAttributedAction,
+              globalEventDeviceHourlyWindowSlide));
     }
 
-    DataStream<RedisSink.Command> outputStream =
-        countJoinedEvents(
-                GLOBAL_EVENT_DEVICE_KEY, logUserJoinEvents, globalEventDeviceHourlyEmitWindow)
-            .union(
-                countJoinedEvents(
-                    CONTENT_EVENT_DEVICE_KEY,
-                    logUserJoinEvents,
-                    contentEventDeviceHourlyEmitWindow),
-                countJoinedEvents(
-                    LOG_USER_EVENT_KEY, logUserJoinEvents, logUserEventHourlyEmitWindow),
-                countJoinedEvents(USER_EVENT_KEY, joinEventsWithUser, userEventHourlyEmitWindow),
-                userEventLastTimeAndCount(
-                    LAST_LOG_USER_CONTENT_KEY, logUserJoinEvents, logUserLastTimeAndCountTtl),
-                userEventLastTimeAndCount(
-                    LAST_USER_CONTENT_KEY, joinEventsWithUser, userLastTimeAndCountTtl));
-
-    if (topQueriesStream != null && queryCounts) {
-      outputStream =
-          outputStream.union(
-              countQueryJoinedEvents(
-                  QUERY_EVENT_KEY, logUserJoinEvents, topQueriesStream, queryEventHourlyEmitWindow),
-              countQueryJoinedEvents(
-                  CONTENT_QUERY_EVENT_KEY,
-                  logUserJoinEvents,
-                  topQueriesStream,
-                  queryEventHourlyEmitWindow));
+    if (isEnabled(keys.getContentEventDeviceKey())) {
+      outputStreamList.add(
+          countJoinedImpressions(
+              keys.getContentEventDeviceKey(),
+              inputLogUserJoinImpressions,
+              contentEventDeviceHourlyWindowSlide));
+      outputStreamList.add(
+          countAttributedActions(
+              keys.getContentEventDeviceKey(),
+              logUserAttributedAction,
+              contentEventDeviceHourlyWindowSlide));
     }
 
-    if (topQueriesStream != null && lastUserQueryEvents) {
-      outputStream =
-          outputStream.union(
-              userQueryLastTimeAndCount(
-                  LAST_LOG_USER_QUERY_KEY,
-                  logUserJoinEvents,
-                  topQueriesStream,
-                  logUserLastTimeAndCountTtl),
-              userQueryLastTimeAndCount(
-                  LAST_USER_QUERY_KEY,
-                  joinEventsWithUser,
-                  topQueriesStream,
-                  userLastTimeAndCountTtl));
+    if (isEnabled(keys.getLogUserEventKey())) {
+      outputStreamList.add(
+          countJoinedImpressions(
+              keys.getLogUserEventKey(),
+              inputLogUserJoinImpressions,
+              logUserEventHourlyWindowSlide));
+      outputStreamList.add(
+          countAttributedActions(
+              keys.getLogUserEventKey(), logUserAttributedAction, logUserEventHourlyWindowSlide));
     }
 
-    final long startTimeMillis = System.currentTimeMillis();
-    final long backfillBufferMillis = counterBackfillBuffer.toMillis();
-
-    if (backfillBufferMillis > 0) {
-      outputStream =
-          add(
-              outputStream
-                  .keyBy(RedisSink.Command.REDIS_HASH_KEY)
-                  .process(
-                      new KeyedProcessFunction<>() {
-                        private ValueState<RedisSink.Command> cachedCommand;
-
-                        @Override
-                        public void open(Configuration config) {
-                          cachedCommand =
-                              getRuntimeContext()
-                                  .getState(
-                                      new ValueStateDescriptor<>(
-                                          "cached" + "-command", RedisSink.Command.class));
-                        }
-
-                        @Override
-                        public void processElement(
-                            RedisSink.Command in, Context ctx, Collector<RedisSink.Command> out)
-                            throws IOException {
-                          long ts = ctx.timestamp();
-
-                          // Backfill buffering backfillBufferMillis > 0
-                          if (ts < startTimeMillis) {
-                            cachedCommand.update(in);
-                            ctx.timerService().registerEventTimeTimer(toBufferTime(ts));
-                          } else {
-                            // We're going to be outputting a more recent value, so just drop the
-                            // cached
-                            // one.
-                            if (cachedCommand.value() != null) cachedCommand.clear();
-                            out.collect(in);
-                          }
-                        }
-
-                        @Override
-                        public void onTimer(
-                            long ts, OnTimerContext ctx, Collector<RedisSink.Command> out)
-                            throws IOException {
-                          if (cachedCommand.value() == null) return;
-                          out.collect(cachedCommand.value());
-                          cachedCommand.clear();
-                        }
-
-                        private long toBufferTime(long timestamp) {
-                          long bufferTime =
-                              (timestamp - (timestamp % backfillBufferMillis))
-                                  + backfillBufferMillis;
-                          // The counters themselves already bucketed.  We just need to spread the
-                          // writes.
-                          int partIndex = getRuntimeContext().getIndexOfThisSubtask();
-                          if (partIndex > 1) {
-                            bufferTime +=
-                                (backfillBufferMillis
-                                        / getRuntimeContext().getNumberOfParallelSubtasks())
-                                    * partIndex;
-                          }
-                          return bufferTime;
-                        }
-                      }),
-              "backfill-buffer-counters-output");
+    if (isEnabled(keys.getUserEventKey())) {
+      outputStreamList.add(
+          countJoinedImpressions(
+              keys.getUserEventKey(), joinImpressionsWithUser.get(), userEventHourlyWindowSlide));
+      outputStreamList.add(
+          countAttributedActions(
+              keys.getUserEventKey(), joinActionsWithUser.get(), userEventHourlyWindowSlide));
     }
 
+    if (isEnabled(keys.getLastLogUserContentKey())) {
+      outputStreamList.add(
+          userImpressionLastTimeAndCount(
+              keys.getLastLogUserContentKey(),
+              inputLogUserJoinImpressions,
+              logUserLastTimeAndCountTtl));
+      outputStreamList.add(
+          userActionLastTimeAndCount(
+              keys.getLastLogUserContentKey(),
+              logUserAttributedAction,
+              logUserLastTimeAndCountTtl));
+    }
+
+    if (isEnabled(keys.getLastUserContentKey())) {
+      outputStreamList.add(
+          userImpressionLastTimeAndCount(
+              keys.getLastUserContentKey(),
+              joinImpressionsWithUser.get(),
+              userLastTimeAndCountTtl));
+      outputStreamList.add(
+          userActionLastTimeAndCount(
+              keys.getLastUserContentKey(), joinActionsWithUser.get(), userLastTimeAndCountTtl));
+    }
+
+    if (isEnabled(keys.getQueryEventKey())) {
+      outputStreamList.add(
+          countQueryJoinedImpressions(
+              keys.getQueryEventKey(),
+              inputLogUserJoinImpressions,
+              topQueriesStream.get(),
+              queryEventHourlyWindowSlide));
+      outputStreamList.add(
+          countQueryAttributedActions(
+              keys.getQueryEventKey(),
+              logUserAttributedAction,
+              topQueriesStream.get(),
+              queryEventHourlyWindowSlide));
+    }
+
+    if (isEnabled(keys.getContentQueryEventKey())) {
+      outputStreamList.add(
+          countQueryJoinedImpressions(
+              keys.getContentQueryEventKey(),
+              inputLogUserJoinImpressions,
+              topQueriesStream.get(),
+              queryEventHourlyWindowSlide));
+      outputStreamList.add(
+          countQueryAttributedActions(
+              keys.getContentQueryEventKey(),
+              logUserAttributedAction,
+              topQueriesStream.get(),
+              queryEventHourlyWindowSlide));
+    }
+
+    if (isEnabled(keys.getLastLogUserQueryKey())) {
+      outputStreamList.add(
+          userQueryImpressionLastTimeAndCount(
+              keys.getLastLogUserQueryKey(),
+              inputLogUserJoinImpressions,
+              topQueriesStream.get(),
+              logUserLastTimeAndCountTtl));
+      outputStreamList.add(
+          userQueryActionLastTimeAndCount(
+              keys.getLastLogUserQueryKey(),
+              logUserAttributedAction,
+              topQueriesStream.get(),
+              logUserLastTimeAndCountTtl));
+    }
+
+    if (isEnabled(keys.getLastUserQueryKey())) {
+      outputStreamList.add(
+          userQueryImpressionLastTimeAndCount(
+              keys.getLastUserQueryKey(),
+              joinImpressionsWithUser.get(),
+              topQueriesStream.get(),
+              userLastTimeAndCountTtl));
+      outputStreamList.add(
+          userQueryActionLastTimeAndCount(
+              keys.getLastUserQueryKey(),
+              joinActionsWithUser.get(),
+              topQueriesStream.get(),
+              userLastTimeAndCountTtl));
+    }
+
+    Preconditions.checkArgument(
+        !outputStreamList.isEmpty(), "At least one --table needs to be specified.");
+
+    @SuppressWarnings("unchecked")
+    DataStream<RedisSinkCommand> outputStream =
+        outputStreamList
+            .get(0)
+            .union(outputStreamList.subList(1, outputStreamList.size()).toArray(new DataStream[0]));
+
+    // Use a dummy sink to replace redisSink if QueryableState is enabled since we don't write Redis
+    // in that mode.
+    if (enableQueryableState) {
+      addSinkTransformation(
+          add(outputStream.addSink(new SinkFunction<>() {}), "dummy-counters-sink")
+              .getTransformation());
+    } else {
+      outputStream = filterAndBufferRedisCommands(outputStream);
+      addSinkTransformation(
+          add(outputStream.addSink(redisSink), "sink-redis-counters").getTransformation());
+    }
+
+    StreamGraph graph = outputStream.getExecutionEnvironment().getStreamGraph(false);
+    graph.setJobName(getJobName());
+    // Rewrite the graph by appending queryable operators to the target queryable operators
+    if (enableQueryableState) {
+      StreamGraphRewriter.rewriteToAddQueryOperators(
+          graph,
+          List.of(
+              "COUNT-impression-BY-plat_dvc-$evt$hourly",
+              "COUNT-impression-BY-plat_dvc-$evt$daily",
+              "COUNT-impression-BY-plat-cont_dvc-$evt$hourly",
+              "COUNT-impression-BY-plat-cont_dvc-$evt$daily",
+              "COUNT-impression-BY-plat-logUsr_$evt$hourly",
+              "COUNT-impression-BY-plat-logUsr_$evt$daily",
+              "COUNT-impression-BY-plat-usr_$evt$hourly",
+              "COUNT-impression-BY-plat-usr_$evt$daily",
+              "COUNT-impression-BY-plat-qry_$evt$daily",
+              "COUNT-impression-BY-plat-qry_$evt$hourly",
+              "COUNT-impression-BY-plat-cont-qry_$evt$daily",
+              "COUNT-impression-BY-plat-cont-qry_$evt$hourly",
+              "COUNT-action-BY-plat_dvc-$evt$hourly",
+              "COUNT-action-BY-plat_dvc-$evt$daily",
+              "COUNT-action-BY-plat-cont_dvc-$evt$hourly",
+              "COUNT-action-BY-plat-cont_dvc-$evt$daily",
+              "COUNT-action-BY-plat-logUsr_$evt$hourly",
+              "COUNT-action-BY-plat-logUsr_$evt$daily",
+              "COUNT-action-BY-plat-usr_$evt$hourly",
+              "COUNT-action-BY-plat-usr_$evt$daily",
+              "COUNT-action-BY-plat-qry_$evt$daily",
+              "COUNT-action-BY-plat-qry_$evt$hourly",
+              "COUNT-action-BY-plat-cont-qry_$evt$daily",
+              "COUNT-action-BY-plat-cont-qry_$evt$hourly",
+              "LASTTIME-impression-BY-plat-logUsr-cont_$evt",
+              "LASTTIME-impression-BY-plat-usr-cont_$evt",
+              "LASTTIME-impression-BY-plat-logUsr-qry_$evt",
+              "LASTTIME-impression-BY-plat-usr-qry_$evt",
+              "LASTTIME-action-BY-plat-logUsr-cont_$evt",
+              "LASTTIME-action-BY-plat-usr-cont_$evt",
+              "LASTTIME-action-BY-plat-logUsr-qry_$evt",
+              "LASTTIME-action-BY-plat-usr-qry_$evt"));
+    }
+    return graph;
+  }
+
+  /**
+   * Starts to buffer redis commands if they are delayed for more than (2 * resultBufferMillis).
+   *
+   * <ol>
+   *   Prerequisites:
+   *   <li>Commands of the same REDIS_HASH_KEY must be strictly ordered by timestamps (watermark is
+   *       perfect).
+   *   <li>The commands are idempotent so that we can just output the latest value.
+   * </ol>
+   */
+  @VisibleForTesting
+  DataStream<RedisSinkCommand> filterAndBufferRedisCommands(
+      DataStream<RedisSinkCommand> outputStream) {
+    final long resultsBufferMillis = counterResultsBuffer.toMillis();
     final long outputStartTimestamp = counterOutputStartTimestamp;
     final long outputStopTimestamp =
         (counterOutputStopTimestamp < 0) ? Long.MAX_VALUE : counterOutputStopTimestamp;
-    outputStream =
-        add(
-            outputStream.process(
-                new ProcessFunction<>() {
+    return add(
+        outputStream
+            .keyBy(RedisSinkCommand.REDIS_HASH_KEY)
+            .process(
+                new KeyedProcessFunction<>() {
+                  private ValueState<RedisSinkCommand> cachedCommand;
+
+                  // No need to store in state. It's fine to reset this to false for each restart.
+                  private transient boolean cacheCleared = false;
+
+                  @Override
+                  public void open(Configuration config) {
+                    cachedCommand =
+                        getRuntimeContext()
+                            .getState(
+                                new ValueStateDescriptor<>(
+                                    "cached-redis-command", RedisSinkCommand.class));
+                  }
+
+                  /** The incoming commands must be strictly ordered by the timestamps! */
                   @Override
                   public void processElement(
-                      RedisSink.Command in, Context ctx, Collector<RedisSink.Command> out) {
-                    long ts = ctx.timestamp();
-                    if (outputStartTimestamp <= ts && ts <= outputStopTimestamp) out.collect(in);
+                      RedisSinkCommand in, Context ctx, Collector<RedisSinkCommand> out)
+                      throws IOException {
+                    long eventTime = ctx.timestamp();
+                    // Skip the command if its timestamp is not in the time range.
+                    if (outputStartTimestamp <= eventTime && eventTime <= outputStopTimestamp) {
+                      // Start to buffer when the command is delayed for more than
+                      // 2 times of the buffer size
+                      if (resultsBufferMillis > 0
+                          && eventTime
+                              < ctx.timerService().currentProcessingTime()
+                                  - resultsBufferMillis * 2) {
+                        cachedCommand.update(in);
+                        cacheCleared = false;
+                        ctx.timerService().registerEventTimeTimer(toBufferTime(eventTime));
+                      } else {
+                        // We're going to output a more recent value, so just drop the
+                        // cached old value.
+                        if (!cacheCleared) {
+                          if (cachedCommand.value() != null) {
+                            cachedCommand.clear();
+                          }
+                          cacheCleared = true;
+                        }
+                        out.collect(in);
+                      }
+                    }
+                  }
+
+                  @Override
+                  public void onTimer(long ts, OnTimerContext ctx, Collector<RedisSinkCommand> out)
+                      throws IOException {
+                    // The cachedCommand may have been cleared by a more recent value.
+                    // We won't output an older value in that case.
+                    if (cachedCommand.value() != null) {
+                      out.collect(cachedCommand.value());
+                      cachedCommand.clear();
+                      cacheCleared = true;
+                    }
+                  }
+
+                  private long toBufferTime(long timestamp) {
+                    long bufferTime =
+                        (timestamp - (timestamp % resultsBufferMillis)) + resultsBufferMillis;
+                    // Stagger timers for different tasks to avoid spikes.
+                    int partIndex = getRuntimeContext().getIndexOfThisSubtask();
+                    if (partIndex > 1) {
+                      bufferTime +=
+                          (resultsBufferMillis / getRuntimeContext().getNumberOfParallelSubtasks())
+                              * partIndex;
+                    }
+                    return bufferTime;
                   }
                 }),
-            "filter-counters-output");
-    addSinkTransformation(
-        add(outputStream.addSink(redisSink), "sink-redis-counters").getTransformation());
+        "buffer-filter-counters-output");
   }
 
   public void prepareSink(RedisSink sink) throws InterruptedException {
@@ -592,81 +872,95 @@ public class CounterJob extends BaseFlinkJob {
       sink.sendCommand(RedisSink.flush());
     }
 
-    List<CountKey<?>> keys =
-        new ArrayList<>(
-            List.of(
-                GLOBAL_EVENT_DEVICE_KEY,
-                CONTENT_EVENT_DEVICE_KEY,
-                LOG_USER_EVENT_KEY,
-                USER_EVENT_KEY,
-                LAST_LOG_USER_CONTENT_KEY,
-                LAST_USER_CONTENT_KEY));
-    if (queryCounts) {
-      keys.add(QUERY_EVENT_KEY);
-      keys.add(CONTENT_QUERY_EVENT_KEY);
-    }
-    if (lastUserQueryEvents) {
-      keys.add(LAST_LOG_USER_QUERY_KEY);
-      keys.add(LAST_USER_QUERY_KEY);
-    }
-    for (RedisSink.Command cmd : createMetadataCommands(keys)) {
-      sink.sendCommand(cmd);
-    }
-
     sink.closeConnection(true);
   }
 
-  private ImmutableList<RedisSink.Command> createMetadataCommands(Iterable<CountKey<?>> keys) {
-    ImmutableList.Builder<RedisSink.Command> builder = ImmutableList.builder();
+  @VisibleForTesting
+  public ImmutableList<RedisSinkCommand> createMetadataCommands() {
+    Iterable<CountKey<?>> keys = getEnabledCountKeys();
+    ImmutableList.Builder<RedisSinkCommand> builder = ImmutableList.builder();
     for (CountKey<?> key : keys) {
       builder.add(
           RedisSink.hset(
               Tuple1.of(CounterKeys.ROW_FORMAT_KEY),
-              Tuple1.of(key.getName()),
+              Tuple1.of(key.getDeprecatedRedisName()),
               key.getRowFormat(),
               -1));
       builder.add(
           RedisSink.hset(
               Tuple1.of(CounterKeys.FEATURE_IDS_KEY),
-              Tuple1.of(key.getName()),
+              Tuple1.of(key.getDeprecatedRedisName()),
               CSV.join(key.getFeatureIds()),
               -1));
     }
     return builder.build();
   }
 
+  <KEY> DataStream<RedisSinkCommand> countJoinedImpressions(
+      JoinedEventCountKey<KEY> countKey,
+      SingleOutputStreamOperator<JoinedImpression> events,
+      Duration hourlyWindowSlide) {
+    return countJoinedEvents(
+        "impression",
+        countKey,
+        countKey::extractKey,
+        events,
+        hourlyWindowSlide,
+        impression -> 1L,
+        FlatUtil::getEventApiTimestamp);
+  }
+
+  <KEY> DataStream<RedisSinkCommand> countAttributedActions(
+      JoinedEventCountKey<KEY> countKey,
+      SingleOutputStreamOperator<AttributedAction> events,
+      Duration hourlyWindowSlide) {
+    return countJoinedEvents(
+        "action",
+        countKey,
+        countKey::extractKey,
+        events,
+        hourlyWindowSlide,
+        CounterUtil::getCount,
+        action -> action.getAction().getTiming().getEventApiTimestamp());
+  }
+
   // TODO: before doing prod-prod deployment, we need to resolve on what the final aggregation
   // strategy and subsequently the redis encoding we need.  This particular job graph should NEVER
   // be expected to incrementally restart as-is.
-  <KEY> DataStream<RedisSink.Command> countJoinedEvents(
+  <EVENT, KEY> DataStream<RedisSinkCommand> countJoinedEvents(
+      String eventName,
       JoinedEventCountKey<KEY> countKey,
-      SingleOutputStreamOperator<JoinedEvent> luidEvents,
-      Duration hourlyEmitWindow) {
-    String name = countKey.getName();
+      SerializableFunction<EVENT, KEY> getKey,
+      SingleOutputStreamOperator<EVENT> luidEvents,
+      Duration hourlyWindowSlide,
+      SerializableToLongFunction<EVENT> getCount,
+      SerializableToLongFunction<EVENT> getEventApiTimestamp) {
+    String name = "COUNT-" + eventName + "-BY-" + countKey.getName();
 
-    String toTinyUid = "to-tiny-event-" + name;
-    // Tuple3<key, logTimestamp, actionCount>.
+    String toTinyUid = "to-tiny-" + name;
+    // Tuple3<key, eventApiTimestamp, actionCount>.
     DataStream<Tuple3<KEY, Long, Long>> tinyEvents =
         add(
             luidEvents.map(
                 event ->
                     Tuple3.of(
-                        countKey.getKey(event),
-                        FlatUtil.getEventApiTimestamp(event),
-                        CounterUtil.getCount(event)),
+                        getKey.apply(event),
+                        getEventApiTimestamp.applyAsLong(event),
+                        getCount.applyAsLong(event)),
                 Types.TUPLE(countKey.getTypeInfo(), Types.LONG, Types.LONG)),
             toTinyUid);
     KeyedStream<Tuple3<KEY, Long, Long>, KEY> keyedEvents =
         tinyEvents.keyBy(in -> in.f0, countKey.getTypeInfo());
-
+    //    String hourlyUid = "count-hourly-" + hourlyWindowSlide + "-" + name;
+    String hourlyUid = name + "$hourly";
     // Tuple4<key, bucket, count, expiry>
-    String hourlyUid = "count-hourly-event-" + name;
     SingleOutputStreamOperator<WindowAggResult<KEY>> hourlyEventCounts =
         add(
             keyedEvents.process(
                 new SlidingHourlyCounter<>(
+                    enableQueryableState,
                     countKey.getTypeInfo(),
-                    hourlyEmitWindow,
+                    hourlyWindowSlide,
                     event -> event.f1,
                     event -> event.f2,
                     s3FileOutput.sideOutputDebugLogging)),
@@ -674,15 +968,17 @@ public class CounterJob extends BaseFlinkJob {
     addSinkTransformation(
         s3FileOutput.outputDebugLogging(
             hourlyUid,
-            hourlyEventCounts.getSideOutput(SlidingHourlyCounter.LOGGING_TAG),
-            SlidingHourlyCounter.LOG_SCHEMA));
+            hourlyEventCounts.getSideOutput(SlidingCounter.LOGGING_TAG),
+            SlidingCounter.LOG_SCHEMA));
 
     // Tuple4<key, bucket, count, expiry>
-    String dailyUid = "count-daily-event-" + name;
+    //    String dailyUid = "count-daily-" + name;
+    String dailyUid = name + "$daily";
     SingleOutputStreamOperator<WindowAggResult<KEY>> dailyEventCounts =
         add(
             keyedEvents.process(
                 new SlidingDailyCounter<>(
+                    enableQueryableState,
                     countKey.getTypeInfo(),
                     event -> event.f1,
                     event -> event.f2,
@@ -691,40 +987,105 @@ public class CounterJob extends BaseFlinkJob {
     addSinkTransformation(
         s3FileOutput.outputDebugLogging(
             dailyUid,
-            dailyEventCounts.getSideOutput(SlidingDailyCounter.LOGGING_TAG),
-            SlidingDailyCounter.LOG_SCHEMA));
+            dailyEventCounts.getSideOutput(SlidingCounter.LOGGING_TAG),
+            SlidingCounter.LOG_SCHEMA));
 
-    return add(hourlyEventCounts.map(countKey), "hourly-event-" + name + "-to-redis")
-        .union(add(dailyEventCounts.map(countKey), "daily-event-" + name + "-to-redis"));
+    DataStream<RedisSinkCommand> commands =
+        add(hourlyEventCounts.map(countKey), "hourly-" + name + "-to-redis")
+            .union(add(dailyEventCounts.map(countKey), "daily-" + name + "-to-redis"));
+
+    if (count90d) {
+      // Tuple4<key, bucket, count, expiry>
+      //      String sixDayUid = "count-sixday-" + name;
+      String sixDayUid = name + "$sixday";
+      SingleOutputStreamOperator<WindowAggResult<KEY>> sixDayEventCounts =
+          add(
+              keyedEvents.process(
+                  new SlidingSixDayCounter<>(
+                      enableQueryableState,
+                      countKey.getTypeInfo(),
+                      event -> event.f1,
+                      event -> event.f2,
+                      s3FileOutput.sideOutputDebugLogging)),
+              sixDayUid);
+      addSinkTransformation(
+          s3FileOutput.outputDebugLogging(
+              sixDayUid,
+              sixDayEventCounts.getSideOutput(SlidingCounter.LOGGING_TAG),
+              SlidingCounter.LOG_SCHEMA));
+
+      commands =
+          commands.union(add(sixDayEventCounts.map(countKey), "sixday-" + name + "-to-redis"));
+    }
+
+    return commands;
+  }
+
+  <KEY> DataStream<RedisSinkCommand> countQueryJoinedImpressions(
+      QueryEventCountKey<KEY> countKey,
+      SingleOutputStreamOperator<JoinedImpression> impressions,
+      KeyedStream<Long, Long> emitQueries,
+      Duration hourlyWindowSlide) {
+    return countQueryJoinedEvents(
+        "impression",
+        countKey,
+        countKey::extractKey,
+        impressions,
+        emitQueries,
+        hourlyWindowSlide,
+        (ignored) -> 1L,
+        FlatUtil::getEventApiTimestamp);
+  }
+
+  <KEY> DataStream<RedisSinkCommand> countQueryAttributedActions(
+      QueryEventCountKey<KEY> countKey,
+      SingleOutputStreamOperator<AttributedAction> actions,
+      KeyedStream<Long, Long> emitQueries,
+      Duration hourlyWindowSlide) {
+    return countQueryJoinedEvents(
+        "action",
+        countKey,
+        countKey::extractKey,
+        actions,
+        emitQueries,
+        hourlyWindowSlide,
+        CounterUtil::getCount,
+        action -> action.getAction().getTiming().getEventApiTimestamp());
   }
 
   // TODO: refactor with countJoinedEvents
-  <KEY> DataStream<RedisSink.Command> countQueryJoinedEvents(
+  <EVENT, KEY> DataStream<RedisSinkCommand> countQueryJoinedEvents(
+      String eventName,
       QueryEventCountKey<KEY> countKey,
-      SingleOutputStreamOperator<JoinedEvent> luidEvents,
+      SerializableFunction<EVENT, KEY> getKey,
+      SingleOutputStreamOperator<EVENT> luidEvents,
       KeyedStream<Long, Long> emitQueries,
-      Duration hourlyEmitWindow) {
-    String name = countKey.getName();
+      Duration hourlyWindowSlide,
+      SerializableToLongFunction<EVENT> getCount,
+      SerializableToLongFunction<EVENT> getEventApiTimestamp) {
+    String name = "COUNT-" + eventName + "-BY-" + countKey.getName();
 
-    String toTinyUid = "to-tiny-event-" + name;
-    // Tuple3<key, logTimestamp, actionCount>.
+    String toTinyUid = "to-tiny-" + name;
+    // Tuple3<key, eventApiTimestamp, actionCount>.
     DataStream<Tuple3<KEY, Long, Long>> tinyEvents =
         add(
             luidEvents.map(
                 event ->
                     Tuple3.of(
-                        countKey.getKey(event),
-                        FlatUtil.getEventApiTimestamp(event),
-                        CounterUtil.getCount(event)),
+                        getKey.apply(event),
+                        getEventApiTimestamp.applyAsLong(event),
+                        getCount.applyAsLong(event)),
                 Types.TUPLE(countKey.getTypeInfo(), Types.LONG, Types.LONG)),
             toTinyUid);
     KeyedStream<Tuple3<KEY, Long, Long>, KEY> keyedEvents =
         tinyEvents.keyBy(in -> in.f0, countKey.getTypeInfo());
 
     // Tuple4<key, bucket, count, expiry>
-    String dailyUid = "count-daily-event-" + name;
-    SlidingDailyCounter<KEY, Tuple3<KEY, Long, Long>> dailyCounter =
+    //    String dailyUid = "count-daily-" + name;
+    String dailyUid = name + "$daily";
+    SlidingCounter<KEY, Tuple3<KEY, Long, Long>> dailyCounter =
         new SlidingDailyCounter<>(
+            enableQueryableState,
             countKey.getTypeInfo(),
             event -> event.f1,
             event -> event.f2,
@@ -734,8 +1095,8 @@ public class CounterJob extends BaseFlinkJob {
     addSinkTransformation(
         s3FileOutput.outputDebugLogging(
             dailyUid,
-            dailyEventCounts.getSideOutput(SlidingDailyCounter.LOGGING_TAG),
-            SlidingDailyCounter.LOG_SCHEMA));
+            dailyEventCounts.getSideOutput(SlidingCounter.LOGGING_TAG),
+            SlidingCounter.LOG_SCHEMA));
 
     dailyEventCounts =
         add(
@@ -751,26 +1112,32 @@ public class CounterJob extends BaseFlinkJob {
                             countKey.getQueryHash(left.getKey()) == FlatUtil.EMPTY_STRING_HASH)),
             "top-filter-" + dailyUid);
 
-    DataStream<RedisSink.Command> queryCountCommands =
-        add(dailyEventCounts.map(countKey), "daily-event-" + name + "-to-redis");
+    DataStream<RedisSinkCommand> commands =
+        add(dailyEventCounts.map(countKey), "daily-" + name + "-to-redis");
+
+    // TODO - add 90d query counts.
 
     // Tuple4<key, bucket, count, expiry>
     if (hourlyQuery) {
-      String hourlyUid = "count-hourly-event-" + name;
-      SlidingHourlyCounter<KEY, Tuple3<KEY, Long, Long>> hourlyCounter =
+      // hourlyWindowSlide is included in the uid because changing it causes a breaking change.
+      //      String hourlyUid = "count-hourly-" + hourlyWindowSlide + "-" + name;
+      String hourlyUid = name + "$hourly";
+      SlidingCounter<KEY, Tuple3<KEY, Long, Long>> hourlyCounter =
           new SlidingHourlyCounter<>(
+              enableQueryableState,
               countKey.getTypeInfo(),
-              hourlyEmitWindow,
+              hourlyWindowSlide,
               event -> event.f1,
               event -> event.f2,
               s3FileOutput.sideOutputDebugLogging);
+
       SingleOutputStreamOperator<WindowAggResult<KEY>> hourlyEventCounts =
           add(keyedEvents.process(hourlyCounter), hourlyUid);
       addSinkTransformation(
           s3FileOutput.outputDebugLogging(
               hourlyUid,
-              hourlyEventCounts.getSideOutput(SlidingHourlyCounter.LOGGING_TAG),
-              SlidingHourlyCounter.LOG_SCHEMA));
+              hourlyEventCounts.getSideOutput(SlidingCounter.LOGGING_TAG),
+              SlidingCounter.LOG_SCHEMA));
 
       hourlyEventCounts =
           add(
@@ -786,28 +1153,59 @@ public class CounterJob extends BaseFlinkJob {
                               countKey.getQueryHash(left.getKey()) == FlatUtil.EMPTY_STRING_HASH)),
               "top-filter-" + hourlyUid);
 
-      queryCountCommands =
-          queryCountCommands.union(
-              add(hourlyEventCounts.map(countKey), "hourly-event-" + name + "-to-redis"));
+      commands =
+          commands.union(add(hourlyEventCounts.map(countKey), "hourly-" + name + "-to-redis"));
     }
 
-    return queryCountCommands;
+    return commands;
   }
 
+  <KEY> DataStream<RedisSinkCommand> userImpressionLastTimeAndCount(
+      LastUserEventKey<KEY> lastUserKey,
+      SingleOutputStreamOperator<JoinedImpression> logUserJoinedImpressions,
+      Duration ttl) {
+    return userEventLastTimeAndCount(
+        "impression",
+        lastUserKey,
+        event -> lastUserKey.extractKey(event),
+        // TODO - for an unknown reason, the following line causes a serialization error.
+        // lastUserKey::getJoinedImpressionKey,
+        logUserJoinedImpressions,
+        ttl,
+        FlatUtil::getEventApiTimestamp);
+  }
+
+  <KEY> DataStream<RedisSinkCommand> userActionLastTimeAndCount(
+      LastUserEventKey<KEY> lastUserKey,
+      SingleOutputStreamOperator<AttributedAction> logUserAttributedActions,
+      Duration ttl) {
+    return userEventLastTimeAndCount(
+        "action",
+        lastUserKey,
+        event -> lastUserKey.extractKey(event),
+        // TODO - for an unknown reason, the following line causes a serialization error.
+        // lastUserKey::getAttributedActionKey,
+        logUserAttributedActions,
+        ttl,
+        action -> action.getAction().getTiming().getEventApiTimestamp());
+  }
   // TODO: as discussed w/ jun, we probably want this to be unqualifed events, but keeping it
   // qualified for now.
-  <KEY> DataStream<RedisSink.Command> userEventLastTimeAndCount(
+  <EVENT, KEY> DataStream<RedisSinkCommand> userEventLastTimeAndCount(
+      String eventName,
       LastUserEventKey<KEY> lastUserKey,
-      SingleOutputStreamOperator<JoinedEvent> logUserJoinEvents,
-      Duration ttl) {
-    String uid = lastUserKey.getName();
+      SerializableFunction<EVENT, KEY> getKey,
+      SingleOutputStreamOperator<EVENT> logUserJoinEvents,
+      Duration ttl,
+      SerializableToLongFunction<EVENT> getEventApiTimestamp) {
+    String uid = "LASTTIME-" + eventName + "-BY-" + lastUserKey.getName();
 
-    String toTinyUid = "to-tiny-event-" + uid;
-    // Tuple2<key, logTimestamp>.
+    String toTinyUid = "to-tiny-" + uid;
+    // Tuple2<key, eventApiTimestamp>.
     DataStream<Tuple2<KEY, Long>> tinyEvents =
         add(
             logUserJoinEvents.map(
-                event -> Tuple2.of(lastUserKey.getKey(event), FlatUtil.getEventApiTimestamp(event)),
+                event -> Tuple2.of(getKey.apply(event), getEventApiTimestamp.applyAsLong(event)),
                 Types.TUPLE(lastUserKey.getTypeInfo(), Types.LONG)),
             toTinyUid);
 
@@ -818,6 +1216,7 @@ public class CounterJob extends BaseFlinkJob {
                 .keyBy(in -> in.f0, lastUserKey.getTypeInfo())
                 .process(
                     new LastTimeAndCount<>(
+                        enableQueryableState,
                         lastUserKey.getTypeInfo(),
                         event -> event.f1,
                         ttl,
@@ -834,28 +1233,71 @@ public class CounterJob extends BaseFlinkJob {
         .union(add(lastTimeAndCount.map(lastUserKey::mapCount90d), uid + "-count90d-to-redis"));
   }
 
-  // TODO: refactor with userEventLastTimeAndCount
-  <KEY extends LastUserEventRedisHashSupplier>
-      DataStream<RedisSink.Command> userQueryLastTimeAndCount(
-          LastUserQueryKey<KEY> lastUserKey,
-          SingleOutputStreamOperator<JoinedEvent> luidEvents,
+  <KEY extends UserEventRedisHashSupplier>
+      DataStream<RedisSinkCommand> userQueryImpressionLastTimeAndCount(
+          BaseLastUserQueryKey<KEY> lastUserKey,
+          SingleOutputStreamOperator<JoinedImpression> impressions,
           KeyedStream<Long, Long> emitQueries,
           Duration ttl) {
-    String uid = lastUserKey.getName();
+    return userQueryLastTimeAndCount(
+        "impression",
+        lastUserKey,
+        event -> lastUserKey.extractKey(event),
+        // TODO - for an unknown reason, the following line causes a serialization error.
+        // lastUserKey::getJoinedImpressionKey,
+        impressions,
+        emitQueries,
+        ttl,
+        FlatUtil::getEventApiTimestamp);
+  }
 
-    String toTinyUid = "to-tiny-event-" + uid;
-    // Tuple2<key, logTimestamp>.
+  <KEY extends UserEventRedisHashSupplier>
+      DataStream<RedisSinkCommand> userQueryActionLastTimeAndCount(
+          BaseLastUserQueryKey<KEY> lastUserKey,
+          SingleOutputStreamOperator<AttributedAction> actions,
+          KeyedStream<Long, Long> emitQueries,
+          Duration ttl) {
+    return userQueryLastTimeAndCount(
+        "action",
+        lastUserKey,
+        event -> lastUserKey.extractKey(event),
+        // TODO - for an unknown reason, the following line causes a serialization error.
+        // lastUserKey::getAttributedActionKey,
+        actions,
+        emitQueries,
+        ttl,
+        action -> action.getAction().getTiming().getEventApiTimestamp());
+  }
+
+  // TODO: refactor with userEventLastTimeAndCount
+  <EVENT, KEY extends UserEventRedisHashSupplier>
+      DataStream<RedisSinkCommand> userQueryLastTimeAndCount(
+          String eventName,
+          BaseLastUserQueryKey<KEY> lastUserKey,
+          SerializableFunction<EVENT, KEY> getKey,
+          SingleOutputStreamOperator<EVENT> luidEvents,
+          KeyedStream<Long, Long> emitQueries,
+          Duration ttl,
+          SerializableToLongFunction<EVENT> getEventApiTimestamp) {
+    String uid = "LASTTIME-" + eventName + "-BY-" + lastUserKey.getName();
+
+    String toTinyUid = "to-tiny-" + uid;
+    // Tuple2<key, eventApiTimestamp>.
     DataStream<Tuple2<KEY, Long>> tinyEvents =
         add(
             luidEvents.map(
-                event -> Tuple2.of(lastUserKey.getKey(event), FlatUtil.getEventApiTimestamp(event)),
+                event -> Tuple2.of(getKey.apply(event), getEventApiTimestamp.applyAsLong(event)),
                 Types.TUPLE(lastUserKey.getTypeInfo(), Types.LONG)),
             toTinyUid);
 
     // Tuple4<key, last timestamp, 90d count, expiry>
     LastTimeAndCount<KEY, Tuple2<KEY, Long>> counter =
         new LastTimeAndCount<>(
-            lastUserKey.getTypeInfo(), event -> event.f1, ttl, s3FileOutput.sideOutputDebugLogging);
+            enableQueryableState,
+            lastUserKey.getTypeInfo(),
+            event -> event.f1,
+            ttl,
+            s3FileOutput.sideOutputDebugLogging);
     SingleOutputStreamOperator<LastTimeAggResult<KEY>> lastTimeAndCount =
         add(tinyEvents.keyBy(in -> in.f0, lastUserKey.getTypeInfo()).process(counter), uid);
     addSinkTransformation(
@@ -884,47 +1326,31 @@ public class CounterJob extends BaseFlinkJob {
         .union(add(lastTimeAndCount.map(lastUserKey::mapCount90d), uid + "-count90d-to-redis"));
   }
 
-  /** Enriches join event stream with logUser-user event stream by a temporal join. */
-  private SingleOutputStreamOperator<JoinedEvent> enrichJoinedEventsWithLogUserUser(
-      DataStream<JoinedEvent> joinedEventStream, DataStream<LogUserUser> logUserUserEventStream) {
+  private CounterKeys getAllCountKeys() {
+    return new CounterKeys(count90d);
+  }
 
-    // Shrink the joinedEventStream to reduce the size
-    joinedEventStream =
-        add(
-            joinedEventStream.map(CounterJob::copyOnlyTheRequiredFields),
-            "copy-only-required-fields-joined-event");
+  /**
+   * @return the effective count keys for the job.
+   */
+  @VisibleForTesting
+  public Collection<CountKey<?>> getEnabledCountKeys() {
+    CounterKeys counterKeys = getAllCountKeys();
+    Map<String, CountKey<?>> allNameToCountKey = counterKeys.getAllKeys();
+    Set<CountKey<?>> keys =
+        allNameToCountKey.entrySet().stream()
+            .filter(entry -> isCountKeyEnabled(entry.getKey()))
+            .map(Map.Entry::getValue)
+            .collect(Collectors.toSet());
+    return keys;
+  }
 
-    return add(
-        joinedEventStream
-            .keyBy(
-                new KeySelector<JoinedEvent, Tuple2<Long, String>>() {
-                  @Override
-                  public Tuple2<Long, String> getKey(JoinedEvent joinedEvent) {
-                    return new Tuple2<>(
-                        FlatUtil.getPlatformId(joinedEvent), FlatUtil.getLogUserId(joinedEvent));
-                  }
-                })
-            .connect(
-                logUserUserEventStream.keyBy(
-                    new KeySelector<LogUserUser, Tuple2<Long, String>>() {
-                      @Override
-                      public Tuple2<Long, String> getKey(LogUserUser logUserUser) {
-                        return new Tuple2<>(
-                            logUserUser.getPlatformId(), logUserUser.getLogUserId());
-                      }
-                    }))
-            .process(
-                new TemporalJoinFunction<>(
-                    TypeInformation.of(JoinedEvent.class),
-                    TypeInformation.of(LogUserUser.class),
-                    (SerializableBiFunction<JoinedEvent, LogUserUser, JoinedEvent>)
-                        (joinedEvent, logUserUser) -> {
-                          JoinedEvent.Builder builder = joinedEvent.toBuilder();
-                          builder.getIdsBuilder().setUserId(logUserUser.getUserId());
-                          return builder.build();
-                        },
-                    null))
-            .returns(TypeInformation.of(JoinedEvent.class)),
-        "enrich-joined-events-with-log-user-user");
+  private boolean isEnabled(CountKey<?> key) {
+    return isCountKeyEnabled(key.getName());
+  }
+
+  private boolean isCountKeyEnabled(String keyName) {
+    return (countKeys.isEmpty() || countKeys.contains(keyName))
+        && !excludeCountKeys.contains(keyName);
   }
 }

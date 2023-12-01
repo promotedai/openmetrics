@@ -1,0 +1,48 @@
+load("@rules_java//java:defs.bzl", "java_binary", "java_library")
+
+java_plugin(
+    name = "autovalue_plugin",
+    processor_class = "com.google.auto.value.processor.AutoValueProcessor",
+    deps = [
+        "@maven//:com_google_auto_value_auto_value",
+    ],
+)
+
+java_library(
+    name = "autovalue",
+    exported_plugins = [":autovalue_plugin"],
+    exports = [
+        "@maven//:com_google_auto_value_auto_value",
+        "@maven//:com_google_auto_value_auto_value_annotations",
+    ],
+)
+
+java_library(
+    name = "action",
+    srcs = glob(["*.java"]),
+    visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
+    deps = [
+        ":autovalue",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/flink/operator",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions/base",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions/inferred",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/job",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/table",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/util",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/join/common",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/join/impression",
+        "@com_github_promotedai_schema_internal_git//proto/event:event_java_proto",
+        "@com_google_protobuf//:protobuf_java",
+        "@maven//:org_apache_avro_avro",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:com_google_guava_guava",
+        "@maven_neverlink//:org_apache_flink_flink_core",
+        "@maven_neverlink//:org_apache_flink_flink_java",
+        "@maven_neverlink//:org_apache_flink_flink_file_sink_common",
+        "@maven_neverlink//:org_apache_flink_flink_streaming_java",
+        "@maven_neverlink//:org_apache_flink_flink_table_api_java_uber",
+        "@maven_neverlink//:org_apache_logging_log4j_log4j_api",
+        "@maven//:info_picocli_picocli",
+    ],
+)

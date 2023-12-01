@@ -6,28 +6,28 @@ metadata:
 data:
   log4j-cli.properties: |+
     # This affects logging for both user code and Flink
-    rootLogger.level = INFO
-    rootLogger.appenderRef.console.ref = ConsoleAppender
+    rootLogger.level = DEBUG
+    rootLogger.appenderRef.console.ref = org.apache.log4j.ConsoleAppender
     rootLogger.appenderRef.rolling.ref = RollingFileAppender
 
     # Uncomment this if you want to _only_ change Flink's logging
     #logger.flink.name = org.apache.flink
-    #logger.flink.level = INFO
+    #logger.flink.level = DEBUG
 
     # The following lines keep the log level of common libraries/connectors on
     # log level INFO. The root logger does not override this. You have to manually
     # change the log levels here.
     logger.akka.name = akka
-    logger.akka.level = INFO
+    logger.akka.level = DEBUG
     logger.kafka.name= org.apache.kafka
-    logger.kafka.level = INFO
+    logger.kafka.level = DEBUG
     logger.hadoop.name = org.apache.hadoop
-    logger.hadoop.level = INFO
+    logger.hadoop.level = DEBUG
     logger.zookeeper.name = org.apache.zookeeper
-    logger.zookeeper.level = INFO
+    logger.zookeeper.level = DEBUG
 
     # Log all infos to the console
-    appender.console.name = ConsoleAppender
+    appender.console.name = org.apache.log4j.ConsoleAppender
     appender.console.type = CONSOLE
     appender.console.layout.type = PatternLayout
     appender.console.layout.pattern = %d{yyyy-MM-dd HH:mm:ss,SSS} %-5p %-60c %x - %m%n
@@ -42,9 +42,9 @@ data:
     appender.rolling.layout.pattern = %d{yyyy-MM-dd HH:mm:ss,SSS} %-5p %-60c %x - %m%n
     appender.rolling.policies.type = Policies
     appender.rolling.policies.size.type = SizeBasedTriggeringPolicy
-    appender.rolling.policies.size.size=100MB
+    appender.rolling.policies.size.size=20MB
     appender.rolling.strategy.type = DefaultRolloverStrategy
-    appender.rolling.strategy.max = 10
+    appender.rolling.strategy.max = 50
 
     # Suppress the irrelevant (wrong) warnings from the Netty channel handler
     logger.netty.name = org.apache.flink.shaded.akka.org.jboss.netty.channel.DefaultChannelPipeline

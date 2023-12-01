@@ -47,17 +47,6 @@ import java.util.stream.Stream;
 /** Factory for generating test LogRequests. */
 public class LogRequestFactory {
 
-  /** Specifies type of test data to use. */
-  public enum DetailLevel {
-    // Does not contain all fields.
-    PARTIAL,
-    // Contains more optional fields with fake data.  This does not impact the IDs that are used.
-    // This adds things like fake request properties and device type.  It's not critical for the
-    // join.
-    // If you want to remove foreign keys, change the `LogRequestIteratorOptions`.
-    FULL,
-  }
-
   public static List<LogRequest> createFullLogRequests(long timeMillis, int n) {
     return createLogRequests(timeMillis, DetailLevel.FULL, n);
   }
@@ -80,8 +69,22 @@ public class LogRequestFactory {
 
   public static LogRequestIteratorOptions.Builder createLogRequestOptionsBuilder(
       long timeMillis, DetailLevel detailLevel, int count) {
+    return createLogRequestOptionsBuilder(timeMillis, detailLevel, count, "0000", "0000");
+  }
+
+  public static LogRequestIteratorOptions.Builder createLogRequestOptionsBuilder(
+      long timeMillis,
+      DetailLevel detailLevel,
+      int count,
+      String anonUserIdComponent,
+      String eventIdComponent) {
     LogRequestIteratorOptions.Builder builder =
-        setDeterministicUuidsAndCounts(LogRequestIteratorOptions.builder(), timeMillis, count);
+        setDeterministicUuidsAndCounts(
+            LogRequestIteratorOptions.builder(),
+            timeMillis,
+            count,
+            anonUserIdComponent,
+            eventIdComponent);
     switch (detailLevel) {
       case PARTIAL:
         return builder;
@@ -155,10 +158,20 @@ public class LogRequestFactory {
             Optional.of(FakeInsertionSurface.create(ContentType.ITEM, false, false)));
   }
 
+  /**
+   * @param anonUserIdComponent allows for inserting 4 characters into the anonUserId UUID.
+   * @param eventIdComponent allows for inserting 4 characters into other event UUIDs. Can be used
+   *     to change events for the same user.
+   */
   private static LogRequestIteratorOptions.Builder setDeterministicUuidsAndCounts(
-      LogRequestIteratorOptions.Builder builder, long timeMillis, int n) {
-    IncrementingUUIDSupplier logUserIdSupplier =
-        new IncrementingUUIDSupplier("00000000-0000-0000-0000-000000000000");
+      LogRequestIteratorOptions.Builder builder,
+      long timeMillis,
+      int n,
+      String anonUserIdComponent,
+      String eventIdComponent) {
+    IncrementingUUIDSupplier anonUserIdSupplier =
+        new IncrementingUUIDSupplier(
+            String.format("00000000-0000-0000-%s-000000000000", anonUserIdComponent));
     // Set navigateRate so there's a large chance we have at least one navigate.
     int numImpressions = n * n * n * n * n;
     float navigateRate = Math.max(1.0f / numImpressions, 0.1f);
@@ -182,21 +195,31 @@ public class LogRequestFactory {
         .setNowSupplier(() -> Instant.ofEpochMilli(timeMillis))
         .setEventApiTimestampSupplier(() -> Instant.ofEpochMilli(timeMillis))
         .setUserUuidSupplier(new StringPrefixUUIDSupplier("userId"))
-        .setLogUserUuidSupplier((ignored) -> logUserIdSupplier.get())
+        .setAnonUserUuidSupplier((ignored) -> anonUserIdSupplier.get())
         .setCohortMembershipUuidSupplier(
-            new IncrementingUUIDSupplier("CCCCCCCC-CCCC-CCCC-0000-000000000000"))
+            new IncrementingUUIDSupplier(
+                String.format("CCCCCCCC-CCCC-CCCC-%s-000000000000", eventIdComponent)))
         .setSessionUuidSupplier(
-            new IncrementingUUIDSupplier("11111111-1111-1111-0000-000000000000"))
-        .setViewUuidSupplier(new IncrementingUUIDSupplier("22222222-2222-2222-0000-000000000000"))
+            new IncrementingUUIDSupplier(
+                String.format("11111111-1111-1111-%s-000000000000", eventIdComponent)))
+        .setViewUuidSupplier(
+            new IncrementingUUIDSupplier(
+                String.format("22222222-2222-2222-%s-000000000000", eventIdComponent)))
         .setAutoViewUuidSupplier(
-            new IncrementingUUIDSupplier("77777777-7777-7777-0000-000000000000"))
+            new IncrementingUUIDSupplier(
+                String.format("77777777-7777-7777-%s-000000000000", eventIdComponent)))
         .setRequestUuidSupplier(
-            new IncrementingUUIDSupplier("33333333-3333-3333-0000-000000000000"))
+            new IncrementingUUIDSupplier(
+                String.format("33333333-3333-3333-%s-000000000000", eventIdComponent)))
         .setResponseInsertionUuidSupplier(
-            new IncrementingUUIDSupplier("44444444-4444-4444-0000-000000000000"))
+            new IncrementingUUIDSupplier(
+                String.format("44444444-4444-4444-%s-000000000000", eventIdComponent)))
         .setImpressionUuidSupplier(
-            new IncrementingUUIDSupplier("55555555-5555-5555-0000-000000000000"))
-        .setActionUuidSupplier(new IncrementingUUIDSupplier("66666666-6666-6666-0000-000000000000"))
+            new IncrementingUUIDSupplier(
+                String.format("55555555-5555-5555-%s-000000000000", eventIdComponent)))
+        .setActionUuidSupplier(
+            new IncrementingUUIDSupplier(
+                String.format("66666666-6666-6666-%s-000000000000", eventIdComponent)))
         .setContentDBFactoryOptions(
             ContentDBFactoryOptions.builder()
                 .setStores(20)
@@ -399,5 +422,16 @@ public class LogRequestFactory {
 
   private static double roundToThousands(double num) {
     return Math.round(1000.0 * num) / 1000.0;
+  }
+
+  /** Specifies type of test data to use. */
+  public enum DetailLevel {
+    // Does not contain all fields.
+    PARTIAL,
+    // Contains more optional fields with fake data.  This does not impact the IDs that are used.
+    // This adds things like fake request properties and device type.  It's not critical for the
+    // join.
+    // If you want to remove foreign keys, change the `LogRequestIteratorOptions`.
+    FULL,
   }
 }

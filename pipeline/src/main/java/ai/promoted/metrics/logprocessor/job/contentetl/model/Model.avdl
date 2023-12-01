@@ -1,0 +1,11 @@
+/**
+  * TODO This is not used and is just an example for using avdl. Remove this once we have another avro model.
+ */
+@namespace("ai.promoted.metrics.common")
+protocol ContentEtl {
+	record ContentItem {
+		string id;
+		timestamp_ms update_time;
+		string json_content;
+	}
+}

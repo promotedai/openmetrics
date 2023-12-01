@@ -1,6 +1,6 @@
 package ai.promoted.metrics.logprocessor.common.table;
 
-import ai.promoted.proto.event.JoinedEvent;
+import ai.promoted.proto.event.JoinedImpression;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
@@ -13,13 +13,19 @@ public interface JoinedImpressionTable {
   TypeInformation<Row> ROW_TYPE_INFORMATION =
       Types.ROW_NAMED(
           new String[] {
-            "platform_id", "event_api_timestamp", "impression_id", "content_id", "position"
+            "platform_id",
+            "event_api_timestamp",
+            "impression_id",
+            "content_id",
+            "position",
+            "search_query"
           },
           Types.LONG,
           Types.LOCAL_DATE_TIME,
           Types.STRING,
           Types.STRING,
-          Types.LONG);
+          Types.LONG,
+          Types.STRING);
 
   Schema SCHEMA =
       Schema.newBuilder()
@@ -27,7 +33,7 @@ public interface JoinedImpressionTable {
           .watermark("rowtime", "SOURCE_WATERMARK()")
           .build();
 
-  static Row toRow(JoinedEvent impression) {
+  static Row toRow(JoinedImpression impression) {
     return Row.of(
         impression.getIds().getPlatformId(),
         LocalDateTime.ofEpochSecond(
@@ -36,6 +42,7 @@ public interface JoinedImpressionTable {
             ZoneOffset.UTC),
         impression.getIds().getImpressionId(),
         impression.getResponseInsertion().getContentId(),
-        impression.getResponseInsertion().getPosition());
+        impression.getResponseInsertion().getPosition(),
+        impression.getRequest().getSearchQuery());
   }
 }

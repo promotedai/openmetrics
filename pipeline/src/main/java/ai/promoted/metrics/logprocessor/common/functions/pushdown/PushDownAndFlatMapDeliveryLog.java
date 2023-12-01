@@ -1,56 +1,54 @@
 package ai.promoted.metrics.logprocessor.common.functions.pushdown;
 
 import ai.promoted.proto.delivery.DeliveryLog;
-import ai.promoted.proto.delivery.Request;
 import ai.promoted.proto.event.LogRequest;
-import java.util.function.Consumer;
-import org.apache.flink.util.Collector;
 
 /**
  * Copies {@link LogRequest}'s {@link DeliveryLog} and fills in default base values. See base class
  * for more details.
  */
-public class PushDownAndFlatMapDeliveryLog extends BasePushDownAndFlatMap<DeliveryLog> {
+public class PushDownAndFlatMapDeliveryLog
+    extends BaseDevicePushDownAndFlatMap<DeliveryLog, DeliveryLog.Builder> {
+
+  public PushDownAndFlatMapDeliveryLog() {
+    super(
+        LogRequest::getDeliveryLogList,
+        DeliveryLog::toBuilder,
+        DeliveryLog.Builder::build,
+        builder -> {
+          if (builder.getPlatformId() != 0L) {
+            return builder.getPlatformId();
+          }
+          return builder.getRequestBuilder().getPlatformId();
+        },
+        DeliveryLog.Builder::setPlatformId,
+        builder -> builder.getRequest().hasUserInfo(),
+        builder -> builder.getRequest().getUserInfo(),
+        (builder, userInfo) -> builder.getRequestBuilder().setUserInfo(userInfo),
+        builder -> builder.getRequest().hasTiming(),
+        builder -> builder.getRequest().getTiming(),
+        (builder, timing) -> builder.getRequestBuilder().setTiming(timing),
+        builder -> builder.getRequest().hasClientInfo(),
+        builder -> builder.getRequest().getClientInfo(),
+        (builder, clientInfo) -> builder.getRequestBuilder().setClientInfo(clientInfo),
+        builder -> builder.getRequest().hasDevice(),
+        builder -> builder.getRequest().getDevice(),
+        (builder, device) -> builder.getRequestBuilder().setDevice(device));
+  }
 
   @Override
-  public void flatMap(LogRequest logRequest, Collector<DeliveryLog> out) {
-    flatMap(logRequest, out::collect);
-  }
-
-  public void flatMap(LogRequest logRequest, Consumer<DeliveryLog> out) {
-    // Do this across all logUserIds.
-    String lowerCaseBatchLogUserId = logRequest.getUserInfo().getLogUserId().toLowerCase();
-    logRequest.getDeliveryLogList().stream()
-        .map(deliveryLog -> pushDownFields(deliveryLog, logRequest, lowerCaseBatchLogUserId))
-        .forEach(out);
-  }
-
-  public static DeliveryLog pushDownFields(
-      DeliveryLog deliveryLog, LogRequest batchValue, String lowerCaseBatchLogUserId) {
-    DeliveryLog.Builder builder = deliveryLog.toBuilder();
-    if (builder.getPlatformId() == 0) {
-      builder.setPlatformId(batchValue.getPlatformId());
+  protected void pushDownPlatformId(DeliveryLog.Builder builder, LogRequest batchValue) {
+    super.pushDownPlatformId(builder, batchValue);
+    // There's two platform_id fields on DeliveryLog.  Set both for now.
+    long platformId = builder.getPlatformId();
+    if (platformId == 0L) {
+      platformId = builder.getRequestBuilder().getPlatformId();
     }
-    // There can be a weird bug if DeliveryLog.platform_id and Request.platform_id are different.
-    builder.getRequestBuilder().setPlatformId(builder.getPlatformId());
-    pushDownFields(builder.getRequestBuilder(), batchValue, lowerCaseBatchLogUserId);
-    return builder.build();
-  }
-
-  private static void pushDownFields(
-      Request.Builder builder, LogRequest batchValue, String lowerCaseBatchLogUserId) {
-    if (batchValue.hasUserInfo()) {
-      pushDownLogUserIdFields(builder.getUserInfoBuilder(), lowerCaseBatchLogUserId);
-    } else if (builder.hasUserInfo()) {
-      // If the top-level `LogRequest.user_info` is not set, we still want to lowercase any
-      // logUserIds.
-      lowerCaseLogUserIdFields(builder.getUserInfoBuilder());
+    if (builder.getPlatformId() != platformId) {
+      builder.setPlatformId(platformId);
     }
-    if (batchValue.hasTiming()) {
-      pushDownTiming(builder.getTimingBuilder(), batchValue);
-    }
-    if (batchValue.hasClientInfo()) {
-      pushDownClientInfo(builder.getClientInfoBuilder(), batchValue);
+    if (builder.getRequestBuilder().getPlatformId() != platformId) {
+      builder.getRequestBuilder().setPlatformId(platformId);
     }
   }
 }

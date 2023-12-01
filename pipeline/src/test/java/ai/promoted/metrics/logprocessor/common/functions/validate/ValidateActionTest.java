@@ -25,26 +25,25 @@ public class ValidateActionTest extends BaseValidateTest<Action> {
   @BeforeEach
   public void setUp() {
     super.setUp();
-    validate = new ValidateAction();
+    validate = new ValidateAction(true);
   }
 
   @Test
   public void valid() throws Exception {
     Action action =
         Action.newBuilder()
-            .setUserInfo(UserInfo.newBuilder().setLogUserId(LOG_USER_ID))
+            .setUserInfo(UserInfo.newBuilder().setAnonUserId(ANON_USER_ID))
             .setContentId(CONTENT_ID)
             .build();
     validate.processElement(action, mockContext, mockOut);
-    verifyNoMoreInteractions(mockContext);
-    verify(mockOut).collect(action);
+    verifyValid(action);
   }
 
   @Test
   public void validWithCart_withActionContentId() throws Exception {
     Action action =
         Action.newBuilder()
-            .setUserInfo(UserInfo.newBuilder().setLogUserId(LOG_USER_ID))
+            .setUserInfo(UserInfo.newBuilder().setAnonUserId(ANON_USER_ID))
             .setContentId(CONTENT_ID)
             .setCart(
                 Cart.newBuilder()
@@ -58,15 +57,14 @@ public class ValidateActionTest extends BaseValidateTest<Action> {
                                     .setAmountMicros(1000000))))
             .build();
     validate.processElement(action, mockContext, mockOut);
-    verifyNoMoreInteractions(mockContext);
-    verify(mockOut).collect(action);
+    verifyValid(action);
   }
 
   @Test
   public void validWithCart_withoutActionContentId() throws Exception {
     Action action =
         Action.newBuilder()
-            .setUserInfo(UserInfo.newBuilder().setLogUserId(LOG_USER_ID))
+            .setUserInfo(UserInfo.newBuilder().setAnonUserId(ANON_USER_ID))
             .setCart(
                 Cart.newBuilder()
                     .addContents(
@@ -79,12 +77,11 @@ public class ValidateActionTest extends BaseValidateTest<Action> {
                                     .setAmountMicros(1000000))))
             .build();
     validate.processElement(action, mockContext, mockOut);
-    verifyNoMoreInteractions(mockContext);
-    verify(mockOut).collect(action);
+    verifyValid(action);
   }
 
   @Test
-  public void missingLogUserId() throws Exception {
+  public void missingAnonUserId() throws Exception {
     Action action =
         Action.newBuilder()
             .setPlatformId(PLATFORM_ID)
@@ -100,11 +97,11 @@ public class ValidateActionTest extends BaseValidateTest<Action> {
     // Future validation tests do not need assert the full message.  It can call createError.
     verify(mockContext)
         .output(
-            ValidateUser.INVALID_TAG,
+            ValidateAction.VALIDATION_ERROR_TAG,
             ValidationError.newBuilder()
                 .setRecordType(RecordType.ACTION)
                 .setErrorType(ErrorType.MISSING_FIELD)
-                .setField(Field.LOG_USER_ID)
+                .setField(Field.ANON_USER_ID)
                 .setPlatformId(PLATFORM_ID)
                 .setViewId(VIEW_ID)
                 .setRequestId(REQUEST_ID)
@@ -112,8 +109,27 @@ public class ValidateActionTest extends BaseValidateTest<Action> {
                 .setActionId(ACTION_ID)
                 .setTiming(getAvroTiming())
                 .build());
+    verify(mockContext).output(validate.getInvalidRecordTag(), action);
     verifyNoMoreInteractions(mockContext);
     verifyNoInteractions(mockOut);
+  }
+
+  @Test
+  public void missingAnonUserId_optional() throws Exception {
+    validate = new ValidateAction(false);
+    Action action =
+        Action.newBuilder()
+            .setPlatformId(PLATFORM_ID)
+            .setTiming(getProtoTiming())
+            .setViewId(VIEW_ID)
+            .setRequestId(REQUEST_ID)
+            .setViewId(VIEW_ID)
+            .setImpressionId(IMPRESSION_ID)
+            .setActionId(ACTION_ID)
+            .setContentId(CONTENT_ID)
+            .build();
+    validate.processElement(action, mockContext, mockOut);
+    verifyValid(action);
   }
 
   @Test
@@ -121,7 +137,7 @@ public class ValidateActionTest extends BaseValidateTest<Action> {
     Action action =
         Action.newBuilder()
             .setPlatformId(PLATFORM_ID)
-            .setUserInfo(UserInfo.newBuilder().setLogUserId(LOG_USER_ID))
+            .setUserInfo(UserInfo.newBuilder().setAnonUserId(ANON_USER_ID))
             .setTiming(getProtoTiming())
             .setViewId(VIEW_ID)
             .setRequestId(REQUEST_ID)
@@ -133,18 +149,19 @@ public class ValidateActionTest extends BaseValidateTest<Action> {
     // Future validation tests do not need assert the full message.  It can call createError.
     verify(mockContext)
         .output(
-            ValidateUser.INVALID_TAG,
+            ValidateAction.VALIDATION_ERROR_TAG,
             ValidationError.newBuilder()
                 .setRecordType(RecordType.ACTION)
                 .setErrorType(ErrorType.MISSING_JOINABLE_ID)
                 .setField(Field.MULTIPLE)
                 .setPlatformId(PLATFORM_ID)
-                .setLogUserId(LOG_USER_ID)
+                .setAnonUserId(ANON_USER_ID)
                 .setViewId(VIEW_ID)
                 .setRequestId(REQUEST_ID)
                 .setActionId(ACTION_ID)
                 .setTiming(getAvroTiming())
                 .build());
+    verify(mockContext).output(validate.getInvalidRecordTag(), action);
     verifyNoMoreInteractions(mockContext);
     verifyNoInteractions(mockOut);
   }
@@ -153,7 +170,7 @@ public class ValidateActionTest extends BaseValidateTest<Action> {
   public void missingCartContentQuantity() throws Exception {
     Action action =
         Action.newBuilder()
-            .setUserInfo(UserInfo.newBuilder().setLogUserId(LOG_USER_ID))
+            .setUserInfo(UserInfo.newBuilder().setAnonUserId(ANON_USER_ID))
             .setTiming(getProtoTiming())
             .setContentId(CONTENT_ID)
             .setActionId(ACTION_ID)
@@ -172,15 +189,16 @@ public class ValidateActionTest extends BaseValidateTest<Action> {
     // Future validation tests do not need assert the full message.  It can call createError.
     verify(mockContext)
         .output(
-            ValidateUser.INVALID_TAG,
+            ValidateAction.VALIDATION_ERROR_TAG,
             ValidationError.newBuilder()
                 .setRecordType(RecordType.ACTION)
                 .setErrorType(ErrorType.MISSING_FIELD)
                 .setField(Field.CART_CONTENT_QUANTITY)
-                .setLogUserId(LOG_USER_ID)
+                .setAnonUserId(ANON_USER_ID)
                 .setActionId(ACTION_ID)
                 .setTiming(getAvroTiming())
                 .build());
+    verify(mockContext).output(validate.getInvalidRecordTag(), action);
     verifyNoMoreInteractions(mockContext);
     verifyNoInteractions(mockOut);
   }
@@ -189,7 +207,7 @@ public class ValidateActionTest extends BaseValidateTest<Action> {
   public void missingCartContentId() throws Exception {
     Action action =
         Action.newBuilder()
-            .setUserInfo(UserInfo.newBuilder().setLogUserId(LOG_USER_ID))
+            .setUserInfo(UserInfo.newBuilder().setAnonUserId(ANON_USER_ID))
             .setActionId(ACTION_ID)
             .setContentId(CONTENT_ID)
             .setCart(
@@ -206,16 +224,22 @@ public class ValidateActionTest extends BaseValidateTest<Action> {
 
     verify(mockContext)
         .output(
-            ValidateUser.INVALID_TAG,
+            ValidateAction.VALIDATION_ERROR_TAG,
             ValidationError.newBuilder()
                 .setRecordType(RecordType.ACTION)
                 .setErrorType(ErrorType.MISSING_FIELD)
                 .setField(Field.CART_CONTENT_ID)
-                .setLogUserId(LOG_USER_ID)
+                .setAnonUserId(ANON_USER_ID)
                 .setActionId(ACTION_ID)
                 .setTiming(Timing.newBuilder().build())
                 .build());
+    verify(mockContext).output(validate.getInvalidRecordTag(), action);
     verifyNoMoreInteractions(mockContext);
     verifyNoInteractions(mockOut);
+  }
+
+  private void verifyValid(Action action) throws Exception {
+    verifyNoMoreInteractions(mockContext);
+    verify(mockOut).collect(action);
   }
 }

@@ -2,14 +2,18 @@ load("@rules_java//java:defs.bzl", "java_library", "java_plugin")
 
 java_library(
     name = "testing",
+    testonly = True,
     srcs = glob(["*.java"]),
     visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
     deps = [
-        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/error:avro",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions/base",
         "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/job",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/model:avro",
         "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/testing",
         "@com_github_promotedai_schema_internal_git//proto/common:common_java_proto",
         "@com_github_promotedai_schema_internal_git//proto/delivery/private/features:features_proto",
+        "@com_github_promotedai_schema_internal_git//proto/event:event_java_proto",
         "@com_google_protobuf//java/core",
         "@maven//:com_google_guava_guava",
         "@maven//:info_picocli_picocli",
@@ -20,12 +24,16 @@ java_library(
         "@maven//:org_apache_flink_flink_streaming_java",
         "@maven//:org_apache_flink_flink_test_utils",
         "@maven//:org_apache_flink_flink_test_utils_junit",
-        "@maven//:org_apache_logging_log4j_log4j_api",
-        "@maven//:org_apache_logging_log4j_log4j_core",
+        "@maven_test//:org_apache_logging_log4j_log4j_api",
+        "@maven_test//:org_apache_logging_log4j_log4j_core",
+        "@maven_test//:org_apache_logging_log4j_log4j_layout_template_json",
+        "@maven_test//:org_apache_logging_log4j_log4j_1_2_api",
+        "@maven_test//:org_apache_logging_log4j_log4j_slf4j_impl",
         "@maven_neverlink//:org_apache_parquet_parquet_common",
         "@maven//:org_junit_jupiter_junit_jupiter_api",
         "@maven_test//:org_apache_flink_flink_statebackend_rocksdb",
         # Manually replace the frocksdbjni version to support mac m1 chip https://github.com/apache/flink/pull/21747
         "@maven_test//:com_ververica_frocksdbjni_6_20_3_ververica_2_0",
+        "@maven_test//:org_apache_flink_flink_csv",
     ],
 )

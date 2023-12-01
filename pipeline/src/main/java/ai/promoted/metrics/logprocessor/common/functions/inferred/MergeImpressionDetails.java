@@ -6,24 +6,26 @@ import ai.promoted.metrics.error.MismatchError;
 import ai.promoted.metrics.logprocessor.common.util.DebugIds;
 import ai.promoted.metrics.logprocessor.common.util.DeliveryLogUtil;
 import ai.promoted.metrics.logprocessor.common.util.FlatUtil;
+import ai.promoted.metrics.logprocessor.common.util.TinyFlatUtil;
+import ai.promoted.metrics.logprocessor.common.util.TrackingUtil;
 import ai.promoted.proto.delivery.DeliveryLog;
 import ai.promoted.proto.delivery.Insertion;
 import ai.promoted.proto.delivery.Request;
 import ai.promoted.proto.event.CombinedDeliveryLog;
+import ai.promoted.proto.event.DroppedMergeImpressionDetails;
 import ai.promoted.proto.event.HiddenApiRequest;
 import ai.promoted.proto.event.Impression;
 import ai.promoted.proto.event.InsertionBundle;
-import ai.promoted.proto.event.JoinedEvent;
-import ai.promoted.proto.event.TinyEvent;
+import ai.promoted.proto.event.JoinedImpression;
+import ai.promoted.proto.event.TinyJoinedImpression;
 import ai.promoted.proto.event.UnionEvent;
-import ai.promoted.proto.event.View;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import java.time.Duration;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
-import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.flink.api.common.functions.RuntimeContext;
@@ -31,6 +33,7 @@ import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.api.common.typeinfo.Types;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.streaming.api.functions.co.KeyedCoProcessFunction;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
 import org.apache.flink.util.Preconditions;
@@ -42,49 +45,48 @@ import org.apache.logging.log4j.Logger;
  * Takes tiny impressions (from Inferred References) and fills in details using the stream of
  * UnionEvent.
  */
-public class MergeImpressionDetails extends AbstractMergeDetails {
+public class MergeImpressionDetails
+    extends AbstractMergeDetails<TinyJoinedImpression, JoinedImpression, JoinedImpression.Builder> {
   private static final Logger LOGGER = LogManager.getLogger(MergeImpressionDetails.class);
 
-  @VisibleForTesting final ViewMerger viewMerger;
+  public static final OutputTag<DroppedMergeImpressionDetails> DROPPED_TAG =
+      new OutputTag<>("dropped") {};
+
   @VisibleForTesting final DeliveryLogMerger deliveryLogMerger;
   @VisibleForTesting final ImpressionMerger impressionMerger;
-  private final boolean skipViewJoin;
   private final DebugIds debugIds;
 
   public MergeImpressionDetails(
-      Duration viewWindow,
       Duration deliveryLogWindow,
       Duration impressionWindow,
       Duration batchCleanupWindow,
       Duration missingEntityDelay,
-      boolean skipViewJoin,
       Long allTimersBeforeCauseBatchCleanup,
       DebugIds debugIds) {
-    super(batchCleanupWindow, missingEntityDelay, allTimersBeforeCauseBatchCleanup, debugIds);
-    this.viewMerger = new ViewMerger(viewWindow, debugIds);
+    super(
+        batchCleanupWindow,
+        missingEntityDelay,
+        allTimersBeforeCauseBatchCleanup,
+        debugIds,
+        TinyJoinedImpression.class);
     this.deliveryLogMerger = new DeliveryLogMerger(deliveryLogWindow, debugIds);
     this.impressionMerger = new ImpressionMerger(impressionWindow, debugIds);
-    this.skipViewJoin = skipViewJoin;
     this.debugIds = debugIds;
   }
 
   @Override
   public void open(Configuration config) throws Exception {
     super.open(config);
-    viewMerger.open(getRuntimeContext());
     deliveryLogMerger.open(getRuntimeContext());
     impressionMerger.open(getRuntimeContext());
   }
 
   @Override
-  public void processElement1(UnionEvent input, Context ctx, Collector<JoinedEvent> out)
+  public void processElement1(UnionEvent input, Context ctx, Collector<JoinedImpression> out)
       throws Exception {
     // TODO - optimize the full records being stored in maps.  We can strip out fields we'll
     // eventually clear.
     switch (input.getEventCase()) {
-      case VIEW:
-        viewMerger.processElement1(input, ctx, out);
-        break;
       case COMBINED_DELIVERY_LOG:
         deliveryLogMerger.processElement1(input, ctx, out);
         break;
@@ -97,28 +99,42 @@ public class MergeImpressionDetails extends AbstractMergeDetails {
   }
 
   @Override
+  protected JoinedImpression.Builder newBuilder() {
+    return JoinedImpression.newBuilder();
+  }
+
+  @Override
+  protected JoinedImpression build(JoinedImpression.Builder builder) {
+    builder.getTimingBuilder().setProcessingTimestamp(TrackingUtil.getProcessingTime());
+    return builder.build();
+  }
+
+  @Override
+  protected boolean matchesDebugIds(TinyJoinedImpression rhs) {
+    return debugIds.matches(rhs);
+  }
+
+  // TODO - introduce utilities for getting the effective foreign keys from Tiny records.
+
+  @Override
   protected void addIncompleteTimers(
-      TinyEvent rhs,
+      TinyJoinedImpression rhs,
       Context ctx,
       EnumSet<AbstractMergeDetails.MissingEvent> missing,
       long timerTimestamp)
       throws Exception {
     for (MissingEvent missingEvent : missing) {
       switch (missingEvent) {
-        case VIEW:
-          addIncompleteTimers(
-              viewMerger.viewIdToIncompleteEventTimers, rhs.getViewId(), timerTimestamp);
-          break;
         case DELIERY_LOG:
           addIncompleteTimers(
               deliveryLogMerger.requestIdToIncompleteEventTimers,
-              rhs.getRequestId(),
+              TinyFlatUtil.getRequestId(rhs),
               timerTimestamp);
           break;
         case IMPRESSION:
           addIncompleteTimers(
               impressionMerger.impressionIdToIncompleteEventTimers,
-              rhs.getImpressionId(),
+              rhs.getImpression().getImpressionId(),
               timerTimestamp);
           break;
         default:
@@ -128,12 +144,30 @@ public class MergeImpressionDetails extends AbstractMergeDetails {
   }
 
   @Override
-  protected String getAllRelatedStateString(
-      String viewId, String requestId, String impressionId, String actionId) throws Exception {
+  protected void outputDropped(
+      KeyedCoProcessFunction.Context ctx,
+      TinyJoinedImpression rhs,
+      JoinedImpression incompleteJoinedImpression) {
+    ctx.output(
+        DROPPED_TAG,
+        DroppedMergeImpressionDetails.newBuilder()
+            .setImpression(rhs)
+            .setJoinedImpression(incompleteJoinedImpression)
+            .build());
+  }
+
+  @Override
+  protected String getAllRelatedStateString(TinyJoinedImpression joinedImpression)
+      throws Exception {
+    return getAllRelatedStateString(
+        TinyFlatUtil.getRequestId(joinedImpression),
+        joinedImpression.getImpression().getImpressionId());
+  }
+
+  private String getAllRelatedStateString(String requestId, String impressionId) throws Exception {
     return String.join(
         ",",
         ImmutableList.of(
-            viewMerger.getDebugStateString(viewId),
             deliveryLogMerger.getDebugStateString(requestId),
             impressionMerger.getDebugStateString(impressionId)));
   }
@@ -141,14 +175,11 @@ public class MergeImpressionDetails extends AbstractMergeDetails {
   /** Returns the set of entity types which are missing. */
   @Override
   protected EnumSet<MissingEvent> fillInFull(
-      JoinedEvent.Builder builder,
-      TinyEvent rhs,
-      BiConsumer<OutputTag<MismatchError>, MismatchError> errorLogger)
+      JoinedImpression.Builder builder,
+      TinyJoinedImpression rhs,
+      Consumer<MismatchError> errorLogger)
       throws Exception {
     EnumSet<MissingEvent> missing = EnumSet.noneOf(MissingEvent.class);
-    if (!skipViewJoin && !viewMerger.fillInFull(builder, rhs, errorLogger)) {
-      missing.add(MissingEvent.VIEW);
-    }
     if (!deliveryLogMerger.fillInFull(builder, rhs, errorLogger)) {
       missing.add(MissingEvent.DELIERY_LOG);
     }
@@ -161,7 +192,6 @@ public class MergeImpressionDetails extends AbstractMergeDetails {
   @Override
   protected void cleanupMergers(long timestamp) throws Exception {
     if (isBatchCleanup(timestamp)) {
-      viewMerger.cleanup(timestamp);
       deliveryLogMerger.cleanup(timestamp);
       impressionMerger.cleanup(timestamp);
     }
@@ -171,92 +201,6 @@ public class MergeImpressionDetails extends AbstractMergeDetails {
   protected boolean hasRequiredEvents(EnumSet<MissingEvent> missing) {
     return !missing.contains(MissingEvent.DELIERY_LOG)
         && !missing.contains(MissingEvent.IMPRESSION);
-  }
-
-  final class ViewMerger extends BaseMerger<View> {
-    private static final long serialVersionUID = 2L;
-
-    @VisibleForTesting MapState<String, View> idToView;
-
-    // This map is to speed up out-of-order joins.  This map can be stale.
-    // Some clean-up happens incrementally in processElement but it will miss some cases.
-    // We do not expect this to happen in production.  It happens in tests.
-    @VisibleForTesting MapState<String, List<Long>> viewIdToIncompleteEventTimers;
-
-    public ViewMerger(Duration window, DebugIds debugIds) {
-      super(UnionEvent::getView, window, debugIds::matches);
-    }
-
-    public void open(RuntimeContext runtimeContext) throws Exception {
-      idToView =
-          runtimeContext.getMapState(
-              new MapStateDescriptor<>("id-to-view", String.class, View.class));
-      viewIdToIncompleteEventTimers =
-          runtimeContext.getMapState(
-              // TODO(PRO-1683) - add caches back in.
-              new MapStateDescriptor<>(
-                  "view-id-to-incomplete-event-timers", Types.STRING, Types.LIST(Types.LONG)));
-    }
-
-    @Override
-    protected void addFull(View view) throws Exception {
-      idToView.put(view.getViewId(), view);
-    }
-
-    @Override
-    protected void tryProcessIncompleteEvents(
-        View view,
-        boolean matchesDebugId,
-        BiConsumer<OutputTag<MismatchError>, MismatchError> errorLogger,
-        Collector<JoinedEvent> out)
-        throws Exception {
-      tryProcessIncompleteEvents(
-          view.getViewId(), matchesDebugId, viewIdToIncompleteEventTimers, errorLogger, out);
-    }
-
-    @Override
-    protected String getDebugStateString(View view) throws Exception {
-      return getAllRelatedStateString(view.getViewId(), "", "", "");
-    }
-
-    protected String getDebugStateString(String id) throws Exception {
-      if (id.isEmpty()) {
-        return "ViewMerger{no key checked}";
-      }
-      View view = idToView.get(id);
-      List<Long> incompleteEventTimers = viewIdToIncompleteEventTimers.get(id);
-      return String.format(
-          "ViewMerger{idToView[%s]=%s, viewIdToIncompleteEventTimers[%s]=%s}",
-          id, view, id, incompleteEventTimers);
-    }
-
-    /** Returns true iff all of the requested fields are included. */
-    public boolean fillInFull(
-        JoinedEvent.Builder builder,
-        TinyEvent rhs,
-        BiConsumer<OutputTag<MismatchError>, MismatchError> errorLogger)
-        throws Exception {
-      if (!rhs.getViewId().isEmpty()) {
-        View view = idToView.get(rhs.getViewId());
-        if (view != null) {
-          FlatUtil.setFlatView(builder, view, errorLogger);
-        } else {
-          return false;
-        }
-      }
-      return true;
-    }
-
-    public void cleanup(long timestamp) throws Exception {
-      cleanupDetailsState(
-          idToView,
-          timestamp,
-          (View view) -> view.getTiming().getLogTimestamp(),
-          window,
-          "View",
-          debugIds::matchesViewId);
-      cleanupOldTimers(viewIdToIncompleteEventTimers, timestamp, "View");
-    }
   }
 
   final class DeliveryLogMerger extends BaseMerger<CombinedDeliveryLog> {
@@ -310,19 +254,27 @@ public class MergeImpressionDetails extends AbstractMergeDetails {
     protected void tryProcessIncompleteEvents(
         CombinedDeliveryLog deliveryLog,
         boolean matchesDebugId,
-        BiConsumer<OutputTag<MismatchError>, MismatchError> errorLogger,
-        Collector<JoinedEvent> out)
+        Consumer<MismatchError> errorLogger,
+        Collector<JoinedImpression> out,
+        long timestamp,
+        long watermark)
         throws Exception {
       // A little redundant work.
       String requestId = DeliveryLogUtil.getRequestId(deliveryLog);
       tryProcessIncompleteEvents(
-          requestId, matchesDebugId, requestIdToIncompleteEventTimers, errorLogger, out);
+          requestId,
+          matchesDebugId,
+          requestIdToIncompleteEventTimers,
+          errorLogger,
+          out,
+          timestamp,
+          watermark);
     }
 
     @Override
     protected String getDebugStateString(CombinedDeliveryLog deliveryLog) throws Exception {
       Request request = DeliveryLogUtil.getRequest(deliveryLog);
-      return getAllRelatedStateString(request.getViewId(), request.getRequestId(), "", "");
+      return getAllRelatedStateString(request.getRequestId(), "");
     }
 
     protected String getDebugStateString(String id) throws Exception {
@@ -333,19 +285,20 @@ public class MergeImpressionDetails extends AbstractMergeDetails {
       InsertionBundle insertionBundle = idToInsertion.get(id);
       List<Long> incompleteEventTimers = requestIdToIncompleteEventTimers.get(id);
       return String.format(
-          "DeliveryLogMerger{idToCombinedDeliveryLog[%s]=%s, idToInsertion[%s]=%s, viewIdToIncompleteEventTimers[%s]=%s}",
+          "DeliveryLogMerger{idToCombinedDeliveryLog[%s]=%s, idToInsertion[%s]=%s, requestIdToIncompleteEventTimers[%s]=%s}",
           id, combinedDelivery, id, insertionBundle, id, incompleteEventTimers);
     }
 
     /** Returns true iff all of the requested fields are included. */
     public boolean fillInFull(
-        JoinedEvent.Builder builder,
-        TinyEvent rhs,
-        BiConsumer<OutputTag<MismatchError>, MismatchError> errorLogger)
+        JoinedImpression.Builder builder,
+        TinyJoinedImpression rhs,
+        Consumer<MismatchError> errorLogger)
         throws Exception {
       boolean allMatched = true;
-      if (!rhs.getRequestId().isEmpty()) {
-        CombinedDeliveryLog combinedDeliveryLog = idToCombinedDeliveryLog.get(rhs.getRequestId());
+      String requestId = TinyFlatUtil.getRequestId(rhs);
+      if (!requestId.isEmpty()) {
+        CombinedDeliveryLog combinedDeliveryLog = idToCombinedDeliveryLog.get(requestId);
         if (combinedDeliveryLog != null) {
           FlatUtil.setFlatRequest(builder, getRequest(combinedDeliveryLog), errorLogger);
           if (combinedDeliveryLog.hasApi() && combinedDeliveryLog.hasSdk()) {
@@ -367,24 +320,34 @@ public class MergeImpressionDetails extends AbstractMergeDetails {
         }
       }
       InsertionBundle insertion = null;
-      if (!rhs.getInsertionId().isEmpty()) {
-        insertion = idToInsertion.get(rhs.getInsertionId());
+      String insertionId = rhs.getInsertion().getCore().getInsertionId();
+      if (!insertionId.isEmpty()) {
+        insertion = idToInsertion.get(insertionId);
         // Fill this in since it's not on the InsertionBundle that is saved to Flink state.
-        builder.getIdsBuilder().setInsertionId(rhs.getInsertionId());
+        builder.getIdsBuilder().setInsertionId(insertionId);
       }
 
       if (insertion != null) {
         if (insertion.hasRequestInsertion()) {
           FlatUtil.setFlatRequestInsertion(
-              builder, insertion.getRequestInsertion(), rhs.getLogTimestamp(), errorLogger);
+              builder,
+              insertion.getRequestInsertion(),
+              rhs.getInsertion().getCommon().getEventApiTimestamp(),
+              errorLogger);
         }
         if (insertion.hasResponseInsertion()) {
           FlatUtil.setFlatResponseInsertion(
-              builder, insertion.getResponseInsertion(), rhs.getLogTimestamp(), errorLogger);
+              builder,
+              insertion.getResponseInsertion(),
+              rhs.getInsertion().getCommon().getEventApiTimestamp(),
+              errorLogger);
         }
         if (insertion.hasApiExecutionInsertion()) {
           FlatUtil.setFlatApiExecutionInsertion(
-              builder, insertion.getApiExecutionInsertion(), rhs.getLogTimestamp(), errorLogger);
+              builder,
+              insertion.getApiExecutionInsertion(),
+              rhs.getInsertion().getCommon().getEventApiTimestamp(),
+              errorLogger);
         }
       } else {
         allMatched = false;
@@ -397,14 +360,14 @@ public class MergeImpressionDetails extends AbstractMergeDetails {
           idToCombinedDeliveryLog,
           timestamp,
           (CombinedDeliveryLog deliveryLog) ->
-              getRequest(deliveryLog).getTiming().getLogTimestamp(),
+              getRequest(deliveryLog).getTiming().getEventApiTimestamp(),
           window,
           "CombinedDeliveryLog",
           debugIds::matchesRequestId);
       cleanupDetailsState(
           idToInsertion,
           timestamp,
-          InsertionBundle::getLogTimestamp,
+          InsertionBundle::getEventApiTimestamp,
           window,
           "Insertion",
           debugIds::matchesInsertionId);
@@ -473,7 +436,7 @@ public class MergeImpressionDetails extends AbstractMergeDetails {
                       (insertion1, insertion2) -> {
                         // If we see duplicate contentIds, we need to verify how duplicate
                         // contentIds work.
-                        LOGGER.error(
+                        LOGGER.warn(
                             "Multiple request insertions with the same contentId, {}, found on DeliveryLog={}",
                             insertion1.getContentId(),
                             deliveryLog);
@@ -490,7 +453,7 @@ public class MergeImpressionDetails extends AbstractMergeDetails {
                       Insertion::getInsertionId,
                       Function.identity(),
                       (insertion1, insertion2) -> {
-                        LOGGER.error(
+                        LOGGER.warn(
                             "Multiple execution insertions with the same insertionId, {}, found on combinedDeliveryLog.getApi()={}",
                             insertion1.getInsertionId(),
                             combinedDeliveryLog.getApi());
@@ -510,13 +473,13 @@ public class MergeImpressionDetails extends AbstractMergeDetails {
                         // TODO(PRO-2012) - Simplify Metrics support for missing insertionIds.
                         return insertion1;
                       }));
-      long logTimestamp = deliveryLog.getRequest().getTiming().getLogTimestamp();
+      long eventApiTimestamp = deliveryLog.getRequest().getTiming().getEventApiTimestamp();
 
       return deliveryLog.getResponse().getInsertionList().stream()
           .map(
               responseInsertion -> {
                 InsertionBundle.Builder builder =
-                    InsertionBundle.newBuilder().setLogTimestamp(logTimestamp);
+                    InsertionBundle.newBuilder().setEventApiTimestamp(eventApiTimestamp);
                 builder.setResponseInsertion(
                     FlatUtil.clearRedundantFlatInsertionFields(responseInsertion.toBuilder()));
                 String contentId = responseInsertion.getContentId();
@@ -619,21 +582,24 @@ public class MergeImpressionDetails extends AbstractMergeDetails {
     protected void tryProcessIncompleteEvents(
         Impression impression,
         boolean matchesDebugId,
-        BiConsumer<OutputTag<MismatchError>, MismatchError> errorLogger,
-        Collector<JoinedEvent> out)
+        Consumer<MismatchError> errorLogger,
+        Collector<JoinedImpression> out,
+        long timestamp,
+        long watermark)
         throws Exception {
       tryProcessIncompleteEvents(
           impression.getImpressionId(),
           matchesDebugId,
           impressionIdToIncompleteEventTimers,
           errorLogger,
-          out);
+          out,
+          timestamp,
+          watermark);
     }
 
     @Override
     protected String getDebugStateString(Impression impression) throws Exception {
-      return getAllRelatedStateString(
-          impression.getViewId(), impression.getRequestId(), impression.getImpressionId(), "");
+      return getAllRelatedStateString(impression.getRequestId(), impression.getImpressionId());
     }
 
     protected String getDebugStateString(String id) throws Exception {
@@ -649,12 +615,13 @@ public class MergeImpressionDetails extends AbstractMergeDetails {
 
     /** Returns true iff all of the requested fields are included. */
     public boolean fillInFull(
-        JoinedEvent.Builder builder,
-        TinyEvent rhs,
-        BiConsumer<OutputTag<MismatchError>, MismatchError> errorLogger)
+        JoinedImpression.Builder builder,
+        TinyJoinedImpression rhs,
+        Consumer<MismatchError> errorLogger)
         throws Exception {
-      if (!rhs.getImpressionId().isEmpty()) {
-        Impression impression = idToImpression.get(rhs.getImpressionId());
+      String impressionId = rhs.getImpression().getImpressionId();
+      if (!impressionId.isEmpty()) {
+        Impression impression = idToImpression.get(impressionId);
         if (impression != null) {
           FlatUtil.setFlatImpression(builder, impression, errorLogger);
           builder.setTiming(impression.getTiming());
@@ -669,7 +636,7 @@ public class MergeImpressionDetails extends AbstractMergeDetails {
       cleanupDetailsState(
           idToImpression,
           timestamp,
-          (Impression impression) -> impression.getTiming().getLogTimestamp(),
+          (Impression impression) -> impression.getTiming().getEventApiTimestamp(),
           window,
           "Impression",
           debugIds::matchesImpressionId);

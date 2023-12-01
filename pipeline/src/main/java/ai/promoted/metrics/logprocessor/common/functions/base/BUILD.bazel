@@ -1,0 +1,12 @@
+load("@rules_java//java:defs.bzl", "java_library")
+
+java_library(
+    name = "base",
+    srcs = glob(["*.java"]),
+    visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
+    deps = [
+        "@com_google_protobuf//:protobuf_java",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:com_google_guava_guava",
+    ],
+)

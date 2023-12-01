@@ -27,7 +27,7 @@ java_library(
         ":meta_inf_import",
         "@com_google_protobuf//:protobuf_java",
         "@maven_neverlink//:org_apache_flink_flink_core",
-        "@maven//:org_apache_flink_flink_csv",
+        "@maven_neverlink//:org_apache_flink_flink_csv",
         "@maven_neverlink//:org_apache_flink_flink_connector_files",
         "@maven_neverlink//:org_apache_flink_flink_java",
         "@maven_neverlink//:org_apache_flink_flink_shaded_jackson",

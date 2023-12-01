@@ -4,10 +4,11 @@ load("@io_bazel_rules_avro//avro:avro.bzl", "avro_java_library")
 avro_java_library(
     name = "avro",
     srcs = glob(["*.avsc"]),
-    visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
-    strings = True,
     # TBD.
-    files_not_dirs = True)
+    files_not_dirs = True,
+    strings = True,
+    visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
+)
 
 java_library(
     name = "error",
@@ -21,7 +22,7 @@ java_library(
         "@maven//:com_google_guava_guava",
         "@maven//:org_apache_avro_avro",
         "@maven//:org_apache_flink_flink_avro",
-        "@maven//:org_apache_flink_flink_core",
-        "@maven//:org_apache_logging_log4j_log4j_api",
+        "@maven_neverlink//:org_apache_flink_flink_core",
+        "@maven_neverlink//:org_apache_logging_log4j_log4j_api",
     ],
 )

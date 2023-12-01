@@ -3,7 +3,7 @@
 source "$(dirname "$0")/../../../config/config.sh"
 
 printf "Deleting Flink FlatOutputJob..."
-kubectl delete --namespace $LOCAL_K8S_NAMESPACE -f $PROMOTED_DIR/metrics/pipeline/kubernetes/local/flat-output-job.yaml || true
+kubectl delete -k kubernetes/_envs/prm/flat-output/local/blue
 printf "Done!\n"
 printf "Deleting Flink FlatOutputJob jobs..."
 JOBMANAGER=`kubectl get pods --namespace $LOCAL_K8S_NAMESPACE | grep flink-jobmanager-0 | awk '{print $1}'`

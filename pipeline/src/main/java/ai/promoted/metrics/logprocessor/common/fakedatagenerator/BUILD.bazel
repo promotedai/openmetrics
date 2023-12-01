@@ -26,7 +26,6 @@ java_library(
     deps = [
         ":autovalue",
         "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/fakedatagenerator/content",
-        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions",
         "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions/pushdown",
         "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/util",
         "@com_github_promotedai_schema_internal_git//proto/common:common_java_proto",

@@ -3,20 +3,22 @@
   <Appenders>
     <Console name="Console" target="SYSTEM_OUT" follow="true" ignoreExceptions="false">
       <PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"/>
+      <!--      Uncomment this to test the JSON log format-->
+      <!--      <JsonTemplateLayout eventTemplateUri="classpath:EcsLayout.json"/>-->
     </Console>
 
-	<RollingFile name="RollingFile" filename="log/Test.log"
-		filepattern="${logPath}/%d{YYYYMMddHHmmss}-test.log">
-		<PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n" />
-		<Policies>
-			<SizeBasedTriggeringPolicy size="100 MB" />
-		</Policies>
-		<DefaultRolloverStrategy max="20" />
-	</RollingFile>
+    <RollingFile name="RollingFile" filename="log/Test.log"
+      filepattern="${logPath}/%d{YYYYMMddHHmmss}-test.log">
+      <PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"/>
+      <Policies>
+        <SizeBasedTriggeringPolicy size="20 MB"/>
+      </Policies>
+      <DefaultRolloverStrategy max="100"/>
+    </RollingFile>
   </Appenders>
 
   <Loggers>
-    <Logger name="ai.promoted" level="info" />
+    <Logger name="ai.promoted" level="info"/>
     <Root level="info">
       <AppenderRef ref="Console"/>
       <AppenderRef ref="RollingFile"/>

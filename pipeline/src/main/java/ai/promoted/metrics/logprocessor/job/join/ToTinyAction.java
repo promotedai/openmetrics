@@ -4,14 +4,14 @@ import ai.promoted.metrics.logprocessor.common.util.TinyFlatUtil;
 import ai.promoted.proto.event.Action;
 import ai.promoted.proto.event.ActionType;
 import ai.promoted.proto.event.CartContent;
-import ai.promoted.proto.event.TinyEvent;
+import ai.promoted.proto.event.TinyAction;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.util.Collector;
 
-final class ToTinyAction implements FlatMapFunction<Action, TinyEvent> {
+final class ToTinyAction implements FlatMapFunction<Action, TinyAction> {
   private final OtherContentIdsConverter otherContentIdsConverter;
 
   ToTinyAction(List<String> requestInsertionOtherContentIdKeys) {
@@ -20,14 +20,14 @@ final class ToTinyAction implements FlatMapFunction<Action, TinyEvent> {
   }
 
   @Override
-  public void flatMap(Action action, Collector<TinyEvent> out) throws Exception {
+  public void flatMap(Action action, Collector<TinyAction> out) throws Exception {
     if (shouldSplitByCartContentIds(action)) {
       for (String contentId : getBaseAndCartContentIds(action)) {
         // Clear the foreign keys since they're probably wrong.
         // TODO - if the cartContent.contentId matches the Action's primary contentId, we might be
         // able
         // to keep the foreign keys.  It might get misused by clients.
-        TinyEvent.Builder tinyAction =
+        TinyAction.Builder tinyAction =
             TinyFlatUtil.toTinyActionBuilder(action, contentId)
                 .clearImpressionId()
                 .clearInsertionId()
@@ -40,7 +40,7 @@ final class ToTinyAction implements FlatMapFunction<Action, TinyEvent> {
         out.collect(tinyAction.build());
       }
     } else {
-      TinyEvent.Builder tinyAction =
+      TinyAction.Builder tinyAction =
           TinyFlatUtil.toTinyActionBuilder(action, action.getContentId());
       if (otherContentIdsConverter.hasKeys() && action.hasProperties()) {
         otherContentIdsConverter.putFromProperties(

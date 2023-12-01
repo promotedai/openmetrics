@@ -1,0 +1,52 @@
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: flink-job
+spec:
+  # The CPU left for t3a.large is about 1725m (1.72)
+  jobManager:
+    resource:
+      memory: "1024m"
+      cpu: 0.2
+  taskManager:
+    resource:
+      memory: "1024m"
+      cpu: 0.5
+  flinkConfiguration:
+    rest.flamegraph.enabled: "true"
+    akka.ask.timeout: 5min
+    akka.lookup.timeout: 1min
+    akka.tcp.timeout: 1min
+
+    jobmanager.memory.jvm-metaspace.size: "128mb"
+
+    # The default, 256mb, is too small.
+    # taskmanager.memory.jvm-metaspace.size: 320mb
+    client.timeout: 15min
+    heartbeat.timeout: "60000"
+
+    fs.s3a.connection.maximum: "1000"
+    # Kafka
+    # request.timeout.ms: "150000"
+
+    # Storage
+    process.taskmanager.working-dir: /taskmanager-data/
+    process.jobmanager.working-dir: /jobmanager-data/
+
+    # HA
+    high-availability: org.apache.flink.kubernetes.highavailability.KubernetesHaServicesFactory
+    s3.entropy.key: _entropy_
+    s3.entropy.length: "4"
+
+    # Use rocksdb by default
+    state.backend: rocksdb
+    state.backend.incremental: "true"
+    state.backend.rocksdb.checkpoint.transfer.thread.num: "2"
+    state.backend.rocksdb.thread.num: "2"
+    state.backend.rocksdb.predefined-options: FLASH_SSD_OPTIMIZED
+    state.backend.rocksdb.timer-service.factory: ROCKSDB
+    state.backend.rocksdb.ttl.compaction.filter.enabled: "false"
+    state.backend.rocksdb.use-bloom-filter: "true"
+
+    # Throw exception when exit is attempted (e.g., System.exit()) disallowing JVM termination
+    cluster.intercept-user-system-exit: THROW

@@ -3,7 +3,7 @@
 source "$(dirname "$0")/../../../config/config.sh"
 
 printf "Deleting Flink ContentMetricsJob..."
-kubectl delete --namespace $LOCAL_K8S_NAMESPACE -f $PROMOTED_DIR/metrics/pipeline/kubernetes/local/content-metrics-job.yaml || true
+kubectl delete -k kubernetes/_envs/prm/content-metrics/local/blue
 printf "Done!\n"
 
 printf "Deleting Flink ContentMetricsJob jobs..."

@@ -21,7 +21,7 @@ public class ToDeliveryLogIdsTest {
         DeliveryLogIds.newBuilder()
             .setPlatformId(2L)
             .setEventApiTimestamp(1235)
-            .setLogUserId("logUserId1")
+            .setAnonUserId("anonUserId1")
             .setRequestId("req1")
             .setViewId("view1")
             .setClientRequestId("clientreq1")
@@ -38,7 +38,7 @@ public class ToDeliveryLogIdsTest {
                             .setTiming(Timing.newBuilder().setEventApiTimestamp(1235))
                             .setUserInfo(
                                 UserInfo.newBuilder()
-                                    .setLogUserId("logUserId1")
+                                    .setAnonUserId("anonUserId1")
                                     .setUserId("userId1"))
                             .setRequestId("req1")
                             .setViewId("view1")

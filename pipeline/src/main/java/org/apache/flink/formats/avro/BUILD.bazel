@@ -1,0 +1,38 @@
+load("@rules_java//java:defs.bzl", "java_binary", "java_library")
+
+# To use the custom sink format, we need to register a Service in META-INF/services.
+# This rule imports a jar (and the java_library will merge the jar META-INF).
+java_import(
+    name = "meta_inf_import",
+    jars = [":meta_inf.jar"],
+)
+
+# Generates a jar containing the correct META-INF.
+genrule(
+    name = "gen_meta_inf",
+    srcs = ["org.apache.flink.table.factories.Factory"],
+    outs = ["meta_inf.jar"],
+    cmd = """
+    mkdir -p META-INF/services
+    cp $< META-INF/services/
+    jar -cf $@ .
+    """,
+)
+
+java_library(
+    name = "promoted_avro",
+    srcs = glob(["*.java"]),
+    visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
+    deps = [
+        ":meta_inf_import",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/avro",
+        "@com_github_promotedai_schema_internal_git//proto/delivery:delivery_java_proto",
+        "@com_github_promotedai_schema_internal_git//proto/event:event_java_proto",
+        "@com_google_protobuf//:protobuf_java",
+        "@maven//:org_apache_avro_avro",
+        "@maven//:org_apache_flink_flink_avro",
+        "@maven_neverlink//:org_apache_flink_flink_connector_files",
+        "@maven_neverlink//:org_apache_flink_flink_core",
+        "@maven_neverlink//:org_apache_flink_flink_table_api_java_uber",
+    ],
+)

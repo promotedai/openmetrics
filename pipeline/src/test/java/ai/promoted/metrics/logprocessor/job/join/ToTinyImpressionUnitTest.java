@@ -1,13 +1,13 @@
 package ai.promoted.metrics.logprocessor.job.join;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static com.google.common.truth.Truth.assertThat;
 
 import ai.promoted.proto.common.Properties;
 import ai.promoted.proto.common.Timing;
 import ai.promoted.proto.common.UserInfo;
 import ai.promoted.proto.event.Impression;
-import ai.promoted.proto.event.TinyEvent;
-import com.google.common.collect.ImmutableList;
+import ai.promoted.proto.event.TinyCommonInfo;
+import ai.promoted.proto.event.TinyImpression;
 import com.google.protobuf.Struct;
 import com.google.protobuf.Value;
 import org.junit.jupiter.api.Test;
@@ -19,26 +19,28 @@ public class ToTinyImpressionUnitTest {
     Impression impression =
         Impression.newBuilder()
             .setPlatformId(1L)
-            .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId1").build())
-            .setTiming(Timing.newBuilder().setLogTimestamp(1))
+            .setUserInfo(UserInfo.newBuilder().setAnonUserId("anonUserId1").build())
+            .setTiming(Timing.newBuilder().setEventApiTimestamp(1))
             .setRequestId("req1")
             .setViewId("view1")
             .setInsertionId("ins1")
             .setContentId("content1")
             .setImpressionId("imp1")
             .build();
-    assertEquals(
-        TinyEvent.newBuilder()
-            .setPlatformId(1L)
-            .setLogUserId("logUserId1")
-            .setLogTimestamp(1L)
-            .setViewId("view1")
-            .setRequestId("req1")
-            .setInsertionId("ins1")
-            .setContentId("content1")
-            .setImpressionId("imp1")
-            .build(),
-        new ToTinyImpression(ImmutableList.of()).map(impression));
+    assertThat(new ToTinyImpression().map(impression))
+        .isEqualTo(
+            TinyImpression.newBuilder()
+                .setCommon(
+                    TinyCommonInfo.newBuilder()
+                        .setPlatformId(1L)
+                        .setAnonUserId("anonUserId1")
+                        .setEventApiTimestamp(1L))
+                .setViewId("view1")
+                .setRequestId("req1")
+                .setInsertionId("ins1")
+                .setImpressionId("imp1")
+                .setContentId("content1")
+                .build());
   }
 
   @Test
@@ -46,8 +48,8 @@ public class ToTinyImpressionUnitTest {
     Impression impression =
         Impression.newBuilder()
             .setPlatformId(1L)
-            .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId1").build())
-            .setTiming(Timing.newBuilder().setLogTimestamp(1))
+            .setUserInfo(UserInfo.newBuilder().setAnonUserId("anonUserId1").build())
+            .setTiming(Timing.newBuilder().setEventApiTimestamp(1))
             .setRequestId("req1")
             .setViewId("view1")
             .setInsertionId("ins1")
@@ -60,18 +62,19 @@ public class ToTinyImpressionUnitTest {
                             .putFields(
                                 "store", Value.newBuilder().setStringValue("store1").build())))
             .build();
-    assertEquals(
-        TinyEvent.newBuilder()
-            .setPlatformId(1L)
-            .setLogUserId("logUserId1")
-            .setLogTimestamp(1L)
-            .setViewId("view1")
-            .setRequestId("req1")
-            .setInsertionId("ins1")
-            .setContentId("content1")
-            .setImpressionId("imp1")
-            .putOtherContentIds(109770977, "store1")
-            .build(),
-        new ToTinyImpression(ImmutableList.of("store")).map(impression));
+    assertThat(new ToTinyImpression().map(impression))
+        .isEqualTo(
+            TinyImpression.newBuilder()
+                .setCommon(
+                    TinyCommonInfo.newBuilder()
+                        .setPlatformId(1L)
+                        .setAnonUserId("anonUserId1")
+                        .setEventApiTimestamp(1L))
+                .setViewId("view1")
+                .setRequestId("req1")
+                .setInsertionId("ins1")
+                .setContentId("content1")
+                .setImpressionId("imp1")
+                .build());
   }
 }

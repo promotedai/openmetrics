@@ -1,6 +1,7 @@
 package ai.promoted.metrics.logprocessor.common.records;
 
-import ai.promoted.metrics.logprocessor.common.functions.SerializableFunction;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableFunction;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableToLongFunction;
 import com.google.protobuf.GeneratedMessageV3;
 import org.apache.kafka.clients.producer.ProducerRecord;
 
@@ -10,25 +11,25 @@ import org.apache.kafka.clients.producer.ProducerRecord;
  */
 public class ProtoKafkaSerializationSchema<T extends GeneratedMessageV3> {
   private final String topic;
-  private final PlatformLogUserKeySerializationSchema<T> keySerializationSchema;
+  private final PlatformKeySerializationSchema<T> keySerializationSchema;
   private final ProtoKafkaValueSerializationSchema<T> valueSerializationSchema;
 
   public ProtoKafkaSerializationSchema(
       String topic,
-      SerializableFunction<T, Long> getPlatformId,
+      SerializableToLongFunction<T> getPlatformId,
       SerializableFunction<T, String> getLogUserId) {
-    this(topic, new PlatformLogUserKeySerializationSchema<T>(getPlatformId, getLogUserId));
+    this(topic, new PlatformKeySerializationSchema<T>(getPlatformId, getLogUserId));
   }
 
   public ProtoKafkaSerializationSchema(
-      String topic, PlatformLogUserKeySerializationSchema<T> keySerializationSchema) {
+      String topic, PlatformKeySerializationSchema<T> keySerializationSchema) {
     this.topic = topic;
     this.keySerializationSchema = keySerializationSchema;
     this.valueSerializationSchema = new ProtoKafkaValueSerializationSchema<>();
   }
 
   public ProducerRecord<byte[], byte[]> serialize(T message) {
-    return new ProducerRecord<byte[], byte[]>(
+    return new ProducerRecord<>(
         topic,
         keySerializationSchema.serialize(message),
         valueSerializationSchema.serialize(message));

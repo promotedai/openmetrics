@@ -64,7 +64,11 @@ public class AvroAsserts {
       try (ParquetReader<GenericRecord> reader =
           AvroParquetReader.<GenericRecord>builder(new org.apache.hadoop.fs.Path(file.getPath()))
               .build()) {
-        resultBuilder.add(reader.read());
+        GenericRecord genericRecord = reader.read();
+        while (genericRecord != null) {
+          resultBuilder.add(genericRecord);
+          genericRecord = reader.read();
+        }
       }
     }
     return resultBuilder.build();
@@ -150,7 +154,6 @@ public class AvroAsserts {
     Map<String, Object> actualFlat = FlatMapUtil.flatten(actual);
 
     MapDifference diff = Maps.difference(expectedFlat, actualFlat);
-
     assertTrue(diff.areEqual(), () -> "Records are different, message=" + message + ", " + diff);
   }
 }

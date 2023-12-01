@@ -1,0 +1,22 @@
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: flink-job
+spec:
+  job:
+    args: [
+      "--jobLabel=blue",
+      "--checkpointInterval=PT1M",
+      "--startFromEarliest",
+#      "--startFromTimestamp=1687536468000",
+
+      "--platformEnv=promoted",
+      "--parallelism=1",
+      "--maxParallelism=32",
+      "--fsAvroPathSchemas=s3a://promoted-event-logs/blue/raw/delivery_log=ai.promoted.proto.delivery.DeliveryLog",
+      "--sqlStatements=select * from `promoted_metrics_default_blue`.`fs_avro`.`DeliveryLog_0` limit 1",
+    ]
+  flinkConfiguration:
+    state.savepoints.dir: s3a://promoted-event-logs/sql-runner-job-blue/savepoints
+    state.checkpoints.dir: s3a://promoted-event-logs/sql-runner-job-blue/checkpoints
+    high-availability.storageDir: s3a://promoted-event-logs/sql-runner-flink-job-blue/ha

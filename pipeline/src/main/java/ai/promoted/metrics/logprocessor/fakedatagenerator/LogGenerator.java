@@ -39,12 +39,6 @@ public class LogGenerator implements Callable<Integer> {
   private static final Logger LOGGER = LogManager.getLogger(LogGenerator.class);
 
   @Option(
-      names = {"-b", "--bootstrap.servers"},
-      defaultValue = Constants.DEFAULT_BOOTSTRAP_SERVERS,
-      description = "Kafka bootstrap servers.")
-  private String bootstrapServers = Constants.DEFAULT_BOOTSTRAP_SERVERS;
-
-  @Option(
       names = {"--metricsApiKafkaDataset"},
       defaultValue = Constants.DEPRECATED_DEFAULT_KAFKA_DATASET,
       description = "The middle part of the Kafka topic name. Default=event")
@@ -230,10 +224,10 @@ public class LogGenerator implements Callable<Integer> {
 
   @Option(
       names = {"--kafkaCompressionType"},
-      defaultValue = "gzip",
+      defaultValue = "snappy",
       description =
           "The Kafka producer `compression.type` value.  Examples: none, gzip, snapper, lz4 or zstd.")
-  private String kafkaCompressionType = "gzip";
+  private String kafkaCompressionType = "snappy";
 
   @Option(
       names = {"--requestContentType0"},
@@ -245,6 +239,12 @@ public class LogGenerator implements Callable<Integer> {
       names = {"--requestContentType1"},
       description = "The type of content for the request page.")
   private Optional<ContentType> requestContentType1 = Optional.empty();
+
+  @Option(
+      names = {"-b", "--bootstrap.servers"},
+      defaultValue = Constants.DEFAULT_BOOTSTRAP_SERVERS,
+      description = "Kafka bootstrap servers.")
+  private String bootstrapServers = Constants.DEFAULT_BOOTSTRAP_SERVERS;
 
   public static void main(String[] args) throws Exception {
     int exitCode = new CommandLine(new LogGenerator()).execute(args);
@@ -364,6 +364,7 @@ public class LogGenerator implements Callable<Integer> {
     return new LogRequestIterator(
         LogRequestFactory.setTestMarketplaceFields(LogRequestIteratorOptions.builder())
             .setUsers(users)
+            .setWriteUserId(true)
             .setSessionsPerUser(sessionsPerUser)
             .setViewsPerSession(viewsPerSession)
             .setAutoViewsPerSession(autoViewsPerSession)
@@ -398,8 +399,8 @@ public class LogGenerator implements Callable<Integer> {
             .setShadowTrafficRate(shadowTrafficRate)
             .setRedundantImpressionRate(redundantImpressionRate)
             .setMaxRedundantImpressionsPerDeliveryLog(maxRedundantImpressionsPerDeliveryLog)
-            .setUserUuidSupplier(() -> "userId-" + UUID.randomUUID().toString())
-            .setLogUserUuidSupplier(
+            .setUserUuidSupplier(() -> "userId-" + UUID.randomUUID())
+            .setAnonUserUuidSupplier(
                 (userId) -> {
                   if (LogRequestIterator.matchesRateOption(
                       emptyLogUserIdRate, userId, "setLogUserUuidSupplier")) {
@@ -425,5 +426,43 @@ public class LogGenerator implements Callable<Integer> {
                   return Duration.ofMillis(resultMillis);
                 })
             .build());
+  }
+
+  // The Java auto-formatter incorrectly adds `final`.  This forces final to not be added.
+  protected void preventFinal() {
+    metricsApiKafkaDataset = Constants.DEPRECATED_DEFAULT_KAFKA_DATASET;
+    logRequestTopicOverride = "";
+    startEventApiTimestamp = 0L;
+    users = 25;
+    sessionsPerUser = 1;
+    viewsPerSession = 100;
+    delayBetweenViewInSeconds = 1;
+    requestsPerViews = 1;
+    autoViewsPerSession = 100;
+    delayBetweenAutoViewInSeconds = 1;
+    responseInsertionsPerRequest = 20;
+    insertionImpressedRate = 0.7f;
+    impressionNavigateRate = 0.2f;
+    navigateAddToCartRate = 0.2f;
+    navigateCheckoutRate = 0.2f;
+    checkoutPurchaseRate = 0.3f;
+    delayMultiplier = 1.0f;
+    uniformRandomDelay = false;
+    useInsertionMatrixFormat = true;
+    setupForInferredIds = true;
+    writeUsers = true;
+    missingViewRate = 0.0f;
+    missingAutoViewRate = 0.0f;
+    missingDeliveryLogRate = 0.0f;
+    missingImpressionRate = 0.0f;
+    miniSdkRate = 0.0f;
+    shadowTrafficRate = 0.0f;
+    redundantImpressionRate = 0.0f;
+    maxRedundantImpressionsPerDeliveryLog = 0;
+    emptyLogUserIdRate = 0.0f;
+    kafkaCompressionType = null;
+    requestContentType0 = null;
+    requestContentType1 = null;
+    bootstrapServers = null;
   }
 }

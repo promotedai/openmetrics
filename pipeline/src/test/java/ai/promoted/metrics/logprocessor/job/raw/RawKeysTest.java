@@ -18,7 +18,7 @@ public class RawKeysTest {
         RawKeys.logUserUserKeySelector.getKey(
             LogUserUser.newBuilder()
                 .setPlatformId(2L)
-                .setEventApiTimestamp(1663099208L)
+                .setEventTimeMillis(1663099208L)
                 .setLogUserId("logUserId1")
                 .setUserId("userId1")
                 .build()));

@@ -8,6 +8,7 @@ from .util import expect_empty_result
 
 class Args(Tap):
     region: str = ""  # The AWS region.
+    s3_staging_bucket: str = ""  # The s3 staging bucket for Athena
     db: str = ""  # The Glue DB.
     view_prefix: str = ""  # The prefix of views to drop.  E.g. `test20200101_`.
     dryrun: bool = False  # Whether to run in a silent mode.
@@ -17,7 +18,7 @@ class Args(Tap):
 def drop_views(args: Args):
     """Drop views defined in `args`.  Throws on exception"""
     athena_conn = connect(
-        s3_staging_dir=f"s3://aws-athena-query-results-{args.region}-055315558257/update-athena/{args.db}/",
+        s3_staging_dir=f"s3://{args.s3_staging_bucket}/update-athena/{args.db}/",
         region_name=args.region)
     view_names = get_view_names_from_prefix(athena_conn, args.db, args.view_prefix)
 

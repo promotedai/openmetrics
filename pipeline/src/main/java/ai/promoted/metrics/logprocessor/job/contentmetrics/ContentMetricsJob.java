@@ -1,37 +1,51 @@
 package ai.promoted.metrics.logprocessor.job.contentmetrics;
 
+import static org.apache.flink.table.api.Expressions.$;
+
 import ai.promoted.metrics.logprocessor.common.job.BaseFlinkJob;
-import ai.promoted.metrics.logprocessor.common.job.FlatOutputKafka;
+import ai.promoted.metrics.logprocessor.common.job.DirectFlatOutputKafkaSource;
+import ai.promoted.metrics.logprocessor.common.job.DirectValidatedEventKafkaSource;
+import ai.promoted.metrics.logprocessor.common.job.FlatOutputKafkaSegment;
+import ai.promoted.metrics.logprocessor.common.job.FlatOutputKafkaSource;
+import ai.promoted.metrics.logprocessor.common.job.FlatOutputKafkaSourceProvider;
+import ai.promoted.metrics.logprocessor.common.job.FlinkSegment;
 import ai.promoted.metrics.logprocessor.common.job.KafkaSegment;
-import ai.promoted.metrics.logprocessor.common.job.MetricsApiKafkaSource;
-import ai.promoted.metrics.logprocessor.common.job.RawActionSegment;
+import ai.promoted.metrics.logprocessor.common.job.KafkaSourceSegment;
+import ai.promoted.metrics.logprocessor.common.job.KeepFirstSegment;
 import ai.promoted.metrics.logprocessor.common.job.ResourceLoader;
 import ai.promoted.metrics.logprocessor.common.job.S3FileOutput;
 import ai.promoted.metrics.logprocessor.common.job.S3Segment;
-import ai.promoted.metrics.logprocessor.common.table.JoinedEventTableSourceSegment;
-import ai.promoted.metrics.logprocessor.common.table.RawEventTableSourceSegment;
+import ai.promoted.metrics.logprocessor.common.job.ValidatedDataSourceProvider;
+import ai.promoted.metrics.logprocessor.common.job.ValidatedEventKafkaSegment;
+import ai.promoted.metrics.logprocessor.common.job.ValidatedEventKafkaSource;
+import ai.promoted.metrics.logprocessor.common.table.MetricsTableCatalog;
 import ai.promoted.metrics.logprocessor.common.table.Tables;
 import ai.promoted.metrics.logprocessor.common.util.StringUtil;
-import ai.promoted.proto.event.Action;
-import ai.promoted.proto.event.JoinedEvent;
+import ai.promoted.proto.event.ActionType;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.protobuf.GeneratedMessageV3;
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
+import com.google.common.collect.ImmutableSet;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Stream;
-import org.apache.flink.streaming.api.datastream.DataStream;
+import java.util.Set;
+import javax.annotation.Nullable;
+import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.api.common.typeinfo.Types;
+import org.apache.flink.configuration.PipelineOptions;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.table.api.Expressions;
+import org.apache.flink.table.api.Table;
 import org.apache.flink.table.api.TableResult;
 import org.apache.flink.table.api.bridge.java.StreamStatementSet;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
+import org.apache.flink.table.functions.ScalarFunction;
+import org.apache.flink.table.functions.TableFunction;
+import org.apache.flink.types.Row;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import picocli.CommandLine;
@@ -45,47 +59,44 @@ import picocli.CommandLine;
 public class ContentMetricsJob extends BaseFlinkJob {
   private static final Logger LOGGER = LogManager.getLogger(ContentMetricsJob.class);
 
-  @CommandLine.Mixin public final KafkaSegment kafkaSegment = new KafkaSegment(this);
+  @CommandLine.Mixin public final KafkaSegment kafkaSegment = new KafkaSegment();
 
   @CommandLine.Mixin
-  public final MetricsApiKafkaSource metricsApiKafkaSource =
-      new MetricsApiKafkaSource(this, kafkaSegment);
+  public final KafkaSourceSegment kafkaSourceSegment = new KafkaSourceSegment(this, kafkaSegment);
+
+  public final ValidatedEventKafkaSegment validatedEventKafkaSegment =
+      new ValidatedEventKafkaSegment(this, kafkaSegment);
 
   @CommandLine.Mixin
-  public final FlatOutputKafka flatOutputKafka = new FlatOutputKafka(kafkaSegment);
+  public final DirectValidatedEventKafkaSource directValidatedEventKafkaSource =
+      new DirectValidatedEventKafkaSource(kafkaSourceSegment, validatedEventKafkaSegment);
+
+  @CommandLine.Mixin public final KeepFirstSegment keepFirstSegment = new KeepFirstSegment(this);
+
+  public final ValidatedEventKafkaSource validatedEventKafkaSource =
+      new ValidatedEventKafkaSource(
+          directValidatedEventKafkaSource, validatedEventKafkaSegment, keepFirstSegment);
+
+  @CommandLine.Mixin
+  public final FlatOutputKafkaSegment flatOutputKafkaSegment =
+      new FlatOutputKafkaSegment(this, kafkaSegment);
+
+  @CommandLine.Mixin
+  public final DirectFlatOutputKafkaSource directFlatOutputKafkaSource =
+      new DirectFlatOutputKafkaSource(kafkaSourceSegment, flatOutputKafkaSegment);
+
+  private final FlatOutputKafkaSource flatOutputKafkaSource =
+      new FlatOutputKafkaSource(
+          directFlatOutputKafkaSource, flatOutputKafkaSegment, keepFirstSegment);
 
   @CommandLine.Mixin public final S3Segment s3 = new S3Segment(this);
   @CommandLine.Mixin public final S3FileOutput s3FileOutput = new S3FileOutput(this, s3);
-
-  @CommandLine.Mixin
-  public final RawEventTableSourceSegment rawEventTableSourceSegment =
-      new RawEventTableSourceSegment(this);
-
-  @CommandLine.Mixin public final RawActionSegment rawActionSegment = new RawActionSegment(this);
-
-  @CommandLine.Mixin
-  public final JoinedEventTableSourceSegment joinedEventTableSourceSegment =
-      new JoinedEventTableSourceSegment(this);
-
-  @CommandLine.Option(
-      names = {"--jobName"},
-      defaultValue = "content-metrics",
-      description =
-          "The name of the job (excluding the label prefix).  This can be used to run multiple ContentMetrics jobs with the same label and different outputs.  Defaults to \"content-metrics\"")
-  public String jobName = "content-metrics";
 
   @CommandLine.Option(
       names = {"--region"},
       defaultValue = "",
       description = "AWS region.  Defaults empty.")
   public String region = "";
-
-  @CommandLine.Option(
-      names = {"--overrideInputLabel"},
-      defaultValue = "",
-      description =
-          "Overrides the Kafka input label (defaults to --jobLabel).  Can be used for cases like --jobLabel='blue.canary' and --overrideInputLabel='blue'.  Empty string means no override.  Cannot be used to override to empty string (not useful now).  Defaults to empty string (no override)")
-  public String overrideInputLabel = "";
 
   @CommandLine.Option(
       names = {"--outputParquet"},
@@ -134,36 +145,28 @@ public class ContentMetricsJob extends BaseFlinkJob {
   public String kinesisStream = "";
 
   public static void main(String[] args) {
-    int exitCode = new CommandLine(new ContentMetricsJob()).execute(args);
-    System.exit(exitCode);
-  }
-
-  /** Gets resource from the jar. */
-  private static Stream<String> getTextResource(String fileName) {
-    InputStream inputStream = ContentMetricsJob.class.getResourceAsStream(fileName);
-    if (inputStream == null) {
-      throw new IllegalArgumentException("Resource filename does not exist, file=" + fileName);
-    }
-    return new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8)).lines();
+    executeMain(new ContentMetricsJob(), args);
   }
 
   @Override
-  public Integer call() throws Exception {
-    validateArgs();
-    startJob();
-    return 0;
+  public Set<FlinkSegment> getInnerFlinkSegments() {
+    return ImmutableSet.of(
+        kafkaSegment,
+        kafkaSourceSegment,
+        validatedEventKafkaSegment,
+        directValidatedEventKafkaSource,
+        keepFirstSegment,
+        validatedEventKafkaSource,
+        flatOutputKafkaSegment,
+        directFlatOutputKafkaSource,
+        flatOutputKafkaSource,
+        s3,
+        s3FileOutput);
   }
 
   @Override
   public void validateArgs() {
-    kafkaSegment.validateArgs();
-    metricsApiKafkaSource.validateArgs();
-    s3.validateArgs();
-    s3FileOutput.validateArgs();
-    rawEventTableSourceSegment.validateArgs();
-    rawActionSegment.validateArgs();
-    joinedEventTableSourceSegment.validateArgs();
-
+    super.validateArgs();
     if (outputCumulatedKinesis) {
       Preconditions.checkArgument(
           !kinesisStream.isEmpty(), "--kinesisStream needs to be specified");
@@ -171,65 +174,122 @@ public class ContentMetricsJob extends BaseFlinkJob {
   }
 
   @Override
-  public List<Class<? extends GeneratedMessageV3>> getProtoClasses() {
-    return ImmutableList.<Class<? extends GeneratedMessageV3>>builder()
-        .addAll(kafkaSegment.getProtoClasses())
-        .addAll(metricsApiKafkaSource.getProtoClasses())
-        .addAll(s3.getProtoClasses())
-        .addAll(s3FileOutput.getProtoClasses())
-        .addAll(rawEventTableSourceSegment.getProtoClasses())
-        .addAll(rawActionSegment.getProtoClasses())
-        .addAll(joinedEventTableSourceSegment.getProtoClasses())
-        .build();
-  }
-
-  public String getInputLabel() {
-    return StringUtil.firstNotEmpty(overrideInputLabel, getJobLabel());
+  protected String getDefaultBaseJobName() {
+    return "content-metrics";
   }
 
   @Override
-  public String getJobName() {
-    return prefixJobLabel(jobName);
-  }
-
-  private void startJob() throws Exception {
+  protected void startJob() throws Exception {
     StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
     configureExecutionEnvironment(env, parallelism, maxParallelism);
     StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
     tableEnv.getConfig().setLocalTimeZone(ZoneOffset.UTC);
 
-    // TODO - make sure we don't have overlapping kafkagroupids.
-    String kafkaGroupId = toKafkaConsumerGroupId("contentmetrics-logrequest");
-    MetricsApiKafkaSource.SplitSources splitLogRequest =
-        metricsApiKafkaSource.splitSources(env, kafkaGroupId, null);
-
     Tables.createCatalogAndDatabase(tableEnv);
-    DataStream<JoinedEvent> joinedEvents =
-        flatOutputKafka.getJoinedEventSource(
-            env,
-            toKafkaConsumerGroupId("content-metrics"),
-            flatOutputKafka.getJoinedEventTopic(getInputLabel()),
-            null);
-    createOperators(tableEnv, splitLogRequest, joinedEvents);
+
+    createOperators(env, tableEnv, validatedEventKafkaSource, flatOutputKafkaSource);
     LOGGER.info("ContentMetricsJob.executionPlan\n{}", env.getExecutionPlan());
+  }
+
+  private void prepareFunctions(StreamTableEnvironment tableEnv) {
+    tableEnv.registerFunction("toActionCartContentRow", new ToActionCartContentRow());
+    tableEnv.createTemporarySystemFunction("toActionTypeNum", ToActionTypeNum.class);
+    tableEnv.createTemporarySystemFunction("toLocalTimestamp", ToLocalTimestamp.class);
+  }
+
+  private void prepareViews(StreamTableEnvironment tableEnv) {
+    tableEnv.executeSql(
+        "CREATE TEMPORARY VIEW view AS "
+            + "(SELECT "
+            + "rowtime, "
+            + "platform_id, "
+            + "toLocalTimestamp(timing.event_api_timestamp) AS event_api_timestamp, "
+            + "view_id, "
+            + "name, "
+            + "content_id "
+            + "FROM `metrics_default_"
+            + getJobLabel()
+            + "`.`validated_ro`.`view`)");
+
+    tableEnv.executeSql(
+        "CREATE TEMPORARY VIEW impression AS "
+            + "(SELECT "
+            + "rowtime, "
+            + "platform_id, "
+            + "toLocalTimestamp(timing.event_api_timestamp) AS event_api_timestamp, "
+            + "impression_id, "
+            + "insertion_id, "
+            + "content_id "
+            + "FROM `metrics_default_"
+            + getJobLabel()
+            + "`.`validated_ro`.`impression`)");
+
+    tableEnv.executeSql(
+        "CREATE TEMPORARY VIEW joined_impression AS "
+            + "(SELECT "
+            + "rowtime, "
+            + "ids.platform_id AS platform_id, "
+            + "toLocalTimestamp(timing.event_api_timestamp) AS event_api_timestamp, "
+            + "ids.impression_id AS impression_id, "
+            + "response_insertion.content_id as content_id, "
+            + "response_insertion.`position` AS `position`, "
+            + "request.search_query AS search_query "
+            + "FROM `metrics_default_"
+            + getJobLabel()
+            + "`.`flat_ro`.`joined_impression`)");
+
+    tableEnv.executeSql(
+        "CREATE TEMPORARY VIEW action AS "
+            + "(SELECT "
+            + "rowtime, "
+            + "platform_id, "
+            + "toLocalTimestamp(timing.event_api_timestamp) AS event_api_timestamp, "
+            + "action_id, "
+            + "impression_id, "
+            + "insertion_id, "
+            + "content_id, "
+            + "toActionTypeNum(action_type) AS action_type, "
+            + "cart "
+            + "FROM `metrics_default_"
+            + getJobLabel()
+            + "`.`validated_ro`.`action`)");
+
+    Table cartContentTable =
+        tableEnv
+            .sqlQuery("SELECT * FROM action")
+            .flatMap(
+                Expressions.call(
+                    "toActionCartContentRow",
+                    $("platform_id"),
+                    $("action_id"),
+                    $("event_api_timestamp"),
+                    $("impression_id"),
+                    $("insertion_id"),
+                    $("action_type"),
+                    $("cart"),
+                    $("rowtime")));
+    tableEnv.createTemporaryView("action_cart_content", cartContentTable);
   }
 
   @VisibleForTesting
   List<TableResult> createOperators(
+      StreamExecutionEnvironment env,
       StreamTableEnvironment tableEnv,
-      MetricsApiKafkaSource.SplitSources splitLogRequest,
-      DataStream<JoinedEvent> joinedEvents) {
-    tableEnv.getConfig().getConfiguration().setString("pipeline.name", getJobName());
+      ValidatedDataSourceProvider validatedDataSourceProvider,
+      FlatOutputKafkaSourceProvider flatOutputKafkaSourceProvider) {
 
-    rawEventTableSourceSegment.createViewTable(tableEnv, splitLogRequest);
-    rawEventTableSourceSegment.createImpressionTable(tableEnv, splitLogRequest);
-    joinedEventTableSourceSegment.createJoinedImpressionTable(tableEnv, joinedEvents);
-    // TODO - try to move deduplication work to Flink SQL.  TBD because Flink SQL doesn't support
-    // the same keep first semantics.
-    DataStream<Action> actions =
-        rawActionSegment.getDeduplicatedAction(splitLogRequest.getRawActionSource());
-    rawEventTableSourceSegment.createActionTable(tableEnv, actions);
-    rawEventTableSourceSegment.createActionCartContentTable(tableEnv, actions);
+    MetricsTableCatalog metricsTableCatalog =
+        new MetricsTableCatalog("", getJobLabel(), toKafkaConsumerGroupId("contentmetrics"));
+    metricsTableCatalog.addValidatedSourceProvider(
+        ValidatedEventKafkaSource.VALIDATED_RO_DB_PREFIX, validatedDataSourceProvider);
+    metricsTableCatalog.addFlatOutputSourceProvider(
+        FlatOutputKafkaSource.FLAT_RO_DB_PREFIX, flatOutputKafkaSourceProvider);
+    List<String> tables = metricsTableCatalog.registerMetricsTables(env, tableEnv);
+    LOGGER.debug("Registered tables {}", tables);
+    tableEnv.getConfig().getConfiguration().setString(PipelineOptions.NAME, getJobName());
+
+    prepareFunctions(tableEnv);
+    prepareViews(tableEnv);
 
     StreamStatementSet statementSet = tableEnv.createStatementSet();
     executeSqlFromResource(tableEnv::executeSql, "1_create_unified_event_stream.sql");
@@ -283,7 +343,6 @@ public class ContentMetricsJob extends BaseFlinkJob {
 
     // TODO - switch query away from rowtime and to event api time.
     // TODO - include platform_id in the join.
-    // TODO - include deliverylog metrics.
 
     return ImmutableList.of(statementSet.execute());
   }
@@ -300,10 +359,11 @@ public class ContentMetricsJob extends BaseFlinkJob {
     Map<String, String> formatParameters =
         ImmutableMap.<String, String>builder()
             .put("jobName", getJobName())
-            .put("rootPath", s3.getDir().build().toString())
-            .put("sinkParallelism", Integer.toString(defaultSinkParallelism))
+            .put("rootPath", s3.getOutputDir().build().toString())
+            .put("sinkParallelism", Integer.toString(getSinkParallelism("sink")))
             .put("cumulatedWindowStep", cumulatedWindowStep)
-            // TODO - parameterize.
+            // TODO - parameterize these Kafka outputs parameters.
+            // It's fine right now because the output Kafka topic is only used for local testing.
             .put("cumulatedKafkaTopic", "metrics.blue.default.cumulated-content-metrics")
             .put("kafkaBootstrapServers", kafkaSegment.bootstrapServers)
             .put("cumulatedKafkaGroupId", "blue.content-metrics")
@@ -324,6 +384,76 @@ public class ContentMetricsJob extends BaseFlinkJob {
       return executeSql.apply(sql);
     } catch (Exception e) {
       throw new RuntimeException("executeSql error for " + queryFile + ", fullQuery=" + sql, e);
+    }
+  }
+
+  public static class ToLocalTimestamp extends ScalarFunction {
+    public LocalDateTime eval(Long eventApiTimestamp) {
+      return LocalDateTime.ofEpochSecond(
+          eventApiTimestamp / 1000, (int) ((eventApiTimestamp % 1000) * 1000000), ZoneOffset.UTC);
+    }
+  }
+
+  public static class ToActionTypeNum extends ScalarFunction {
+    public int eval(String actionType) {
+      return ActionType.valueOf(actionType).getNumber();
+    }
+  }
+
+  public static class ToActionCartContentRow extends TableFunction<Row> {
+    public void eval(
+        Long platformId,
+        String actionId,
+        LocalDateTime eventApiTimestamp,
+        String impressionId,
+        String insertionId,
+        int actionType,
+        @Nullable Row cart,
+        Timestamp rowtime) {
+      if (null != cart) {
+        Row[] cartContents = cart.getFieldAs("contents");
+        for (Row cartContent : cartContents) {
+          collect(
+              Row.of(
+                  platformId,
+                  eventApiTimestamp,
+                  actionId,
+                  impressionId,
+                  insertionId,
+                  cartContent.<String>getFieldAs("content_id"),
+                  actionType,
+                  cartContent.<Long>getFieldAs("quantity"),
+                  cartContent.<Row>getFieldAs("price_per_unit").<Long>getFieldAs("amount_micros"),
+                  rowtime));
+        }
+      }
+    }
+
+    @Override
+    public TypeInformation<Row> getResultType() {
+      return Types.ROW_NAMED(
+          new String[] {
+            "platform_id",
+            "event_api_timestamp",
+            "action_id",
+            "impression_id",
+            "insertion_id",
+            "content_id",
+            "action_type",
+            "quantity",
+            "price_usd_micros_per_unit",
+            "rowtime"
+          },
+          Types.LONG,
+          Types.LOCAL_DATE_TIME,
+          Types.STRING,
+          Types.STRING,
+          Types.STRING,
+          Types.STRING,
+          Types.INT,
+          Types.LONG,
+          Types.LONG,
+          Types.SQL_TIMESTAMP);
     }
   }
 }

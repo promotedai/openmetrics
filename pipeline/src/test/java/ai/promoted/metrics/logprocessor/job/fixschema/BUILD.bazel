@@ -39,7 +39,7 @@ java_junit5_test(
 # Use java_test after bazel officially support junit5
 java_junit5_test(
     name = "minicluster_tests",
-    timeout = "moderate",
+    timeout = "short",
     srcs = glob(["*MiniclusterTest.java"]),
     jvm_flags = [
         "-Dlog4j.configurationFile=resources/log4j2-test.xml",
@@ -60,10 +60,9 @@ java_junit5_test(
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_truth_truth",
         "@maven//:org_apache_avro_avro",
-        "@maven//:org_apache_flink_flink_core",
         "@maven//:org_apache_flink_flink_connector_files",
+        "@maven//:org_apache_flink_flink_core",
         "@maven//:org_apache_flink_flink_streaming_java",
-        "@maven//:org_apache_logging_log4j_log4j_api",
-        "@maven//:org_apache_logging_log4j_log4j_core",
+        "@maven_neverlink//:org_apache_logging_log4j_log4j_api",
     ],
 )

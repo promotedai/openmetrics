@@ -1,87 +1,107 @@
 package ai.promoted.metrics.logprocessor.job.join;
 
+import static ai.promoted.metrics.logprocessor.common.util.TableUtil.getLabeledDatabaseName;
+
+import ai.promoted.metrics.common.RedundantAction;
+import ai.promoted.metrics.common.RedundantImpression;
 import ai.promoted.metrics.error.MismatchError;
-import ai.promoted.metrics.error.ValidationError;
 import ai.promoted.metrics.logprocessor.common.error.MismatchErrorTag;
-import ai.promoted.metrics.logprocessor.common.flink.operator.InferenceOperator;
-import ai.promoted.metrics.logprocessor.common.flink.operator.KeyedProcessOperatorWithWatermarkDelay;
-import ai.promoted.metrics.logprocessor.common.functions.AddLatestImpressions;
+import ai.promoted.metrics.logprocessor.common.flink.operator.KeyedProcessOperatorWithWatermarkAddition;
+import ai.promoted.metrics.logprocessor.common.flink.operator.ProcessOperatorWithWatermarkAddition;
 import ai.promoted.metrics.logprocessor.common.functions.CombineDeliveryLog;
+import ai.promoted.metrics.logprocessor.common.functions.DeliveryExecutionUtil;
 import ai.promoted.metrics.logprocessor.common.functions.FilterOperator;
-import ai.promoted.metrics.logprocessor.common.functions.FixDeliveryLog;
 import ai.promoted.metrics.logprocessor.common.functions.KeyUtil;
-import ai.promoted.metrics.logprocessor.common.functions.RestructureDeliveryLog;
-import ai.promoted.metrics.logprocessor.common.functions.SerializableFunction;
-import ai.promoted.metrics.logprocessor.common.functions.SerializablePredicate;
-import ai.promoted.metrics.logprocessor.common.functions.SerializablePredicates;
-import ai.promoted.metrics.logprocessor.common.functions.SerializableToLongFunction;
-import ai.promoted.metrics.logprocessor.common.functions.SetLogTimestamp;
+import ai.promoted.metrics.logprocessor.common.functions.PopulatePagingId;
 import ai.promoted.metrics.logprocessor.common.functions.UserInfoUtil;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableFunction;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializablePredicate;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializablePredicates;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableToLongFunction;
 import ai.promoted.metrics.logprocessor.common.functions.filter.BuyerPredicate;
-import ai.promoted.metrics.logprocessor.common.functions.inferred.ImpressionActionProcessFunction;
-import ai.promoted.metrics.logprocessor.common.functions.inferred.InsertionImpressionProcessFunction;
+import ai.promoted.metrics.logprocessor.common.functions.inferred.IsImpressionAction;
+import ai.promoted.metrics.logprocessor.common.functions.inferred.IsImpressionActionPath;
 import ai.promoted.metrics.logprocessor.common.functions.inferred.MergeActionDetails;
 import ai.promoted.metrics.logprocessor.common.functions.inferred.MergeImpressionDetails;
-import ai.promoted.metrics.logprocessor.common.functions.inferred.Options;
-import ai.promoted.metrics.logprocessor.common.functions.inferred.ViewResponseInsertionProcessFunction;
-import ai.promoted.metrics.logprocessor.common.functions.redundantimpression.ReduceRedundantTinyImpressions;
-import ai.promoted.metrics.logprocessor.common.functions.redundantimpression.RedundantImpressionKey;
-import ai.promoted.metrics.logprocessor.common.functions.validate.BaseValidate;
-import ai.promoted.metrics.logprocessor.common.functions.validate.ValidateAction;
-import ai.promoted.metrics.logprocessor.common.functions.validate.ValidateDeliveryLog;
-import ai.promoted.metrics.logprocessor.common.functions.validate.ValidateImpression;
-import ai.promoted.metrics.logprocessor.common.functions.validate.ValidateView;
-import ai.promoted.metrics.logprocessor.common.job.BaseFlinkJob;
+import ai.promoted.metrics.logprocessor.common.functions.inferred.ToTinyAttributedAction;
+import ai.promoted.metrics.logprocessor.common.functions.redundantevent.ReduceRedundantTinyActions;
+import ai.promoted.metrics.logprocessor.common.functions.redundantevent.ReduceRedundantTinyImpressions;
+import ai.promoted.metrics.logprocessor.common.functions.redundantevent.RedundantEventKeys;
+import ai.promoted.metrics.logprocessor.common.job.BaseFlinkTableJob;
 import ai.promoted.metrics.logprocessor.common.job.ContentApiSegment;
+import ai.promoted.metrics.logprocessor.common.job.DirectValidatedEventKafkaSource;
 import ai.promoted.metrics.logprocessor.common.job.FeatureFlag;
-import ai.promoted.metrics.logprocessor.common.job.FlatOutputKafka;
+import ai.promoted.metrics.logprocessor.common.job.FlatOutputKafkaSegment;
+import ai.promoted.metrics.logprocessor.common.job.FlatOutputKafkaSink;
+import ai.promoted.metrics.logprocessor.common.job.FlinkSegment;
 import ai.promoted.metrics.logprocessor.common.job.KafkaSegment;
+import ai.promoted.metrics.logprocessor.common.job.KafkaSinkSegment;
+import ai.promoted.metrics.logprocessor.common.job.KafkaSourceSegment;
+import ai.promoted.metrics.logprocessor.common.job.KeepFirstSegment;
 import ai.promoted.metrics.logprocessor.common.job.MergeDetailsOutputs;
-import ai.promoted.metrics.logprocessor.common.job.MetricsApiKafkaSource;
-import ai.promoted.metrics.logprocessor.common.job.RawActionSegment;
-import ai.promoted.metrics.logprocessor.common.job.RawImpressionSegment;
+import ai.promoted.metrics.logprocessor.common.job.RegionSegment;
 import ai.promoted.metrics.logprocessor.common.job.S3FileOutput;
 import ai.promoted.metrics.logprocessor.common.job.S3Segment;
-import ai.promoted.metrics.logprocessor.common.job.hudi.HudiOutput;
+import ai.promoted.metrics.logprocessor.common.job.ValidatedEventKafkaSegment;
+import ai.promoted.metrics.logprocessor.common.job.ValidatedEventKafkaSource;
+import ai.promoted.metrics.logprocessor.common.job.paimon.PaimonSegment;
 import ai.promoted.metrics.logprocessor.common.s3.S3Path;
 import ai.promoted.metrics.logprocessor.common.util.BotUtil;
 import ai.promoted.metrics.logprocessor.common.util.DebugIds;
 import ai.promoted.metrics.logprocessor.common.util.DeliveryLogUtil;
 import ai.promoted.metrics.logprocessor.common.util.FlatUtil;
+import ai.promoted.metrics.logprocessor.common.util.TinyFlatUtil;
+import ai.promoted.metrics.logprocessor.job.join.action.ActionJoinSegment;
+import ai.promoted.metrics.logprocessor.job.join.action.ActionPathAndDropped;
+import ai.promoted.metrics.logprocessor.job.join.action.UnnestTinyAction;
+import ai.promoted.metrics.logprocessor.job.join.impression.ImpressionJoinOutputs;
+import ai.promoted.metrics.logprocessor.job.join.impression.ImpressionJoinSegment;
 import ai.promoted.proto.delivery.DeliveryLog;
 import ai.promoted.proto.delivery.Insertion;
 import ai.promoted.proto.delivery.Request;
+import ai.promoted.proto.delivery.Response;
 import ai.promoted.proto.event.Action;
+import ai.promoted.proto.event.AttributedAction;
 import ai.promoted.proto.event.CombinedDeliveryLog;
-import ai.promoted.proto.event.Diagnostics;
-import ai.promoted.proto.event.DroppedMergeDetailsEvent;
+import ai.promoted.proto.event.DroppedMergeActionDetails;
+import ai.promoted.proto.event.DroppedMergeImpressionDetails;
 import ai.promoted.proto.event.FlatResponseInsertion;
 import ai.promoted.proto.event.Impression;
-import ai.promoted.proto.event.JoinedEvent;
-import ai.promoted.proto.event.LatestImpression;
+import ai.promoted.proto.event.JoinedImpression;
+import ai.promoted.proto.event.TinyAction;
+import ai.promoted.proto.event.TinyActionPath;
+import ai.promoted.proto.event.TinyAttributedAction;
+import ai.promoted.proto.event.TinyCommonInfo;
 import ai.promoted.proto.event.TinyDeliveryLog;
-import ai.promoted.proto.event.TinyEvent;
+import ai.promoted.proto.event.TinyImpression;
+import ai.promoted.proto.event.TinyInsertion;
+import ai.promoted.proto.event.TinyJoinedImpression;
 import ai.promoted.proto.event.UnionEvent;
-import ai.promoted.proto.event.View;
+import ai.promoted.proto.event.UnnestedTinyAction;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.protobuf.GeneratedMessageV3;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import org.apache.avro.specific.SpecificRecordBase;
 import org.apache.flink.api.common.functions.CoGroupFunction;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.KeyedStream;
+import org.apache.flink.streaming.api.datastream.SideOutputDataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.windowing.assigners.EventTimeSessionWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
+import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
 import org.apache.logging.log4j.LogManager;
@@ -96,35 +116,50 @@ import picocli.CommandLine.Option;
     description =
         "Creates a Flink job that reads LogRequests from Kafka, fills in defaults,"
             + " and produces flat event messages to Kafka.")
-public class FlatOutputJob extends BaseFlinkJob {
+public class FlatOutputJob extends BaseFlinkTableJob {
   private static final Logger LOGGER = LogManager.getLogger(FlatOutputJob.class);
-  private static final TypeInformation<TinyEvent> flatTypeInfo =
-      TypeInformation.of(TinyEvent.class);
-
-  @CommandLine.Mixin public final KafkaSegment kafkaSegment = new KafkaSegment(this);
-
-  @CommandLine.Mixin
-  public final MetricsApiKafkaSource metricsApiKafkaSource =
-      new MetricsApiKafkaSource(this, kafkaSegment);
+  private static final TypeInformation<TinyInsertion> tinyInsertionTypeInfo =
+      TypeInformation.of(TinyInsertion.class);
+  private static final TypeInformation<TinyActionPath> tinyActionPathTypeInfo =
+      TypeInformation.of(TinyActionPath.class);
+  @CommandLine.Mixin public final KafkaSegment kafkaSegment = new KafkaSegment();
 
   @CommandLine.Mixin
-  public final RawImpressionSegment rawImpressionSegment = new RawImpressionSegment(this);
-
-  @CommandLine.Mixin public final RawActionSegment rawActionSegment = new RawActionSegment(this);
+  public final KafkaSourceSegment kafkaSourceSegment = new KafkaSourceSegment(this, kafkaSegment);
 
   @CommandLine.Mixin
-  public final FlatOutputKafka flatOutputKafka = new FlatOutputKafka(kafkaSegment);
+  public final KafkaSinkSegment kafkaSinkSegment = new KafkaSinkSegment(this, kafkaSegment);
 
+  @CommandLine.Mixin
+  public final FlatOutputKafkaSegment flatOutputKafkaSegment =
+      new FlatOutputKafkaSegment(this, kafkaSegment);
+
+  public final FlatOutputKafkaSink flatOutputKafkaSink =
+      new FlatOutputKafkaSink(this, flatOutputKafkaSegment, kafkaSinkSegment);
+  public final ValidatedEventKafkaSegment validatedEventKafkaSegment =
+      new ValidatedEventKafkaSegment(this, kafkaSegment);
+
+  @CommandLine.Mixin
+  public final DirectValidatedEventKafkaSource directValidatedEventKafkaSource =
+      new DirectValidatedEventKafkaSource(kafkaSourceSegment, validatedEventKafkaSegment);
+
+  @CommandLine.Mixin public final KeepFirstSegment keepFirstSegment = new KeepFirstSegment(this);
+  public final ValidatedEventKafkaSource validatedEventKafkaSource =
+      new ValidatedEventKafkaSource(
+          directValidatedEventKafkaSource, validatedEventKafkaSegment, keepFirstSegment);
   @CommandLine.Mixin public final S3Segment s3 = new S3Segment(this);
   @CommandLine.Mixin public final S3FileOutput s3FileOutput = new S3FileOutput(this, s3);
-  @CommandLine.Mixin public final ContentApiSegment contentApiSegment = new ContentApiSegment(this);
-  @CommandLine.Mixin public final HudiOutput hudiOutput = new HudiOutput(this);
+  @CommandLine.Mixin public final RegionSegment regionSegment = new RegionSegment();
 
-  @Option(
-      names = {"--devMode"},
-      negatable = true,
-      description = "Whether this is in a local development mode.  Default=false")
-  public boolean devMode = false;
+  @CommandLine.Mixin
+  public final ContentApiSegment contentApiSegment = new ContentApiSegment(this, regionSegment);
+
+  @CommandLine.Mixin public final PaimonSegment paimonSegment = new PaimonSegment(this);
+
+  @CommandLine.Mixin
+  public final ImpressionJoinSegment impressionJoinSegment = new ImpressionJoinSegment();
+
+  @CommandLine.Mixin public final ActionJoinSegment actionJoinSegment = new ActionJoinSegment();
 
   @FeatureFlag
   @Option(
@@ -133,48 +168,11 @@ public class FlatOutputJob extends BaseFlinkJob {
       description = "Whether to write flat events to Kafka.  Default=true")
   public boolean writeJoinedEventsToKafka = true;
 
-  @FeatureFlag
-  @Option(
-      names = {"--writeFlatResponseInsertionsToKafka"},
-      negatable = true,
-      description = "Whether to write flat response insertions to Kafka.  Default=false")
-  public boolean writeFlatResponseInsertionsToKafka = false;
-
   @Option(
       names = {"--no-checkLateness"},
       negatable = true,
       description = "Whether to check events for lateness and ordering.")
   public boolean checkLateness = true;
-
-  @Option(
-      names = {"--idJoinDurationMultiplier"},
-      defaultValue = "1",
-      description = "Multiplier to apply to join durations for id joins.")
-  public int idJoinDurationMultiplier = 1;
-  // TODO - shift this from a flag to automatic configuration based on View traffic.
-  // Dan: I don't know how to do this in a cheap way.  I'd prefer not to check Flink state when it's
-  // not needed.
-  // We might need an configuration structure that can be updated asynchronously.
-  // It's fine if we miss some View joins.
-  @Option(
-      names = {"--skipViewJoin"},
-      negatable = true,
-      description = "Whether to skip the View joins.")
-  public boolean skipViewJoin = false;
-
-  @Option(
-      names = {"--viewInsertionJoinMin"},
-      defaultValue = "-PT10M",
-      description =
-          "Min range in View Insertion interval join. This uses the DeliveryLog kafka timestamp. Default=-PT10M. Java8 Duration parse format.")
-  public Duration viewInsertionJoinMin = Duration.parse("-PT10M");
-
-  @Option(
-      names = {"--viewInsertionJoinMax"},
-      defaultValue = "PT0S",
-      description =
-          "Max range in View Insertion interval join. This uses the DeliveryLog kafka timestamp. Default=PT0S. Java8 Duration parse format.")
-  public Duration viewInsertionJoinMax = Duration.parse("PT0S");
 
   @Option(
       names = {"--combineDeliveryLogWindow"},
@@ -183,53 +181,12 @@ public class FlatOutputJob extends BaseFlinkJob {
           "Window for merging DeliveryLogs with the same clientRequestId. The longer the window, the slower the output.  This impacts the downstream joinMaxes. Default=PT2S. Java8 Duration parse format.")
   public Duration combineDeliveryLogWindow = Duration.parse("PT2S");
 
-  @Option(
-      names = {"--insertionImpressionJoinMin"},
-      defaultValue = "-PT30M",
-      description =
-          "Min range in Insertion Impression interval join. Default=-PT30M. Java8 Duration parse format.")
-  public Duration insertionImpressionJoinMin = Duration.parse("-PT30M");
-
-  @Option(
-      names = {"--insertionImpressionJoinMax"},
-      defaultValue = "PT0S",
-      description =
-          "Max range in Insertion Impression interval join. Default=PT0S. Java8 Duration parse format.")
-  public Duration insertionImpressionJoinMax = Duration.parse("PT0S");
-
-  @Option(
-      names = {"--impressionActionJoinMin"},
-      defaultValue = "-P1D",
-      description =
-          "Min range in Impression Action interval join. Default=-P1D. Java8 Duration parse format.")
-  public Duration impressionActionJoinMin = Duration.parse("-P1D");
-
-  @Option(
-      names = {"--impressionActionJoinMax"},
-      defaultValue = "PT0S",
-      description =
-          "Max range in Impression Action interval join. Default=PT0S. Java8 Duration parse format.")
-  public Duration impressionActionJoinMax = Duration.parse("PT0S");
-
-  @FeatureFlag
-  @Option(
-      names = {"--no-addLatestImpressions"},
-      negatable = true,
-      description = "Whether to AddLatestImpressions on actions.")
-  public boolean addLatestImpressions = true;
-
   @FeatureFlag
   @CommandLine.Option(
-      names = {"--writeHudiTables"},
+      names = {"--writePaimonTables"},
       negatable = true,
-      description = "Whether to write data to Hudi tables.  Default=false")
-  public boolean writeHudiTables = false;
-
-  @Option(
-      names = {"--extraAddLatestImpressionOutOfOrderness"},
-      defaultValue = "PT0.5S",
-      description = "An extra maxOutOfOrderness for AddLatestImpressions. Default=PT0.5S")
-  public Duration extraAddLatestImpressionOutOfOrderness = Duration.parse("PT0.5S");
+      description = "Whether to write data to Paimon tables.  Default=false")
+  public boolean writePaimonTables = false;
 
   // CR: i'm inclined to just use the max of the impressionActionJoinM* flag values.
   @Option(
@@ -248,11 +205,18 @@ public class FlatOutputJob extends BaseFlinkJob {
   public Duration mergeDetailsCleanupPeriod = Duration.parse("PT30S");
 
   @Option(
-      names = {"--mergeDetailsMissingOutputDelay"},
+      names = {"--mergeImpressionDetailsMissingOutputDelay"},
       defaultValue = "PT0S",
       description =
-          "Duration for which to delay TinyEvents where we don't have full entities.  This delay probably isn't needed.  It might catch small issues if we stream realtime through inferred refs. Default=PT0S.")
-  public Duration mergeDetailsMissingOutputDelay = Duration.parse("PT0S");
+          "Duration for which to delay Tiny Impressions where we don't have full entities.  This delay probably isn't needed.  It might catch small issues if we stream realtime through inferred refs. Default=PT0S.")
+  public Duration mergeImpressionDetailsMissingOutputDelay = Duration.parse("PT0S");
+
+  @Option(
+      names = {"--mergeActionDetailsMissingOutputDelay"},
+      defaultValue = "PT0S",
+      description =
+          "Duration for which to delay Tiny Actions where we don't have full entities.  This delay probably isn't needed.  It might catch small issues if we stream realtime through inferred refs. Default=PT0S.")
+  public Duration mergeActionDetailsMissingOutputDelay = Duration.parse("PT0S");
 
   @Option(
       names = {"--mergeDetailsCleanupBuffer"},
@@ -290,19 +254,19 @@ public class FlatOutputJob extends BaseFlinkJob {
   public boolean textLogWatermarks = false;
 
   @Option(
-      names = {"--hudiSideDatabaseName"},
-      description = "The name for the side Hudi database.")
-  public String hudiSideDatabaseName;
+      names = {"--debugOutputBeforeReductionTinyEvents"},
+      negatable = true,
+      description =
+          "Whether to log the before-redundant-reduction tiny events.  Defaults to false to reduce data lake write volumes.")
+  public boolean debugOutputBeforeReductionTinyEvents = false;
 
   public static void main(String[] args) {
-    int exitCode = new CommandLine(new FlatOutputJob()).execute(args);
-    System.exit(exitCode);
+    executeMain(new FlatOutputJob(), args);
   }
 
   private static Time toFlinkTime(Duration duration) {
     return Time.milliseconds(duration.toMillis());
   }
-  ;
 
   private static Duration add(Duration... durations) {
     long millis = 0;
@@ -317,330 +281,230 @@ public class FlatOutputJob extends BaseFlinkJob {
     transformation.setName(uid);
   }
 
-  private static boolean hasActions(FlatResponseInsertion insertion) {
-    return insertion.getActionCount() > 0;
-  }
-
-  public String getEltSideDatabase() {
-    return hudiSideDatabaseName + "_" + jobLabel;
+  @Override
+  public Set<FlinkSegment> getInnerFlinkSegments() {
+    return ImmutableSet.of(
+        kafkaSegment,
+        kafkaSourceSegment,
+        kafkaSinkSegment,
+        flatOutputKafkaSegment,
+        flatOutputKafkaSink,
+        validatedEventKafkaSegment,
+        directValidatedEventKafkaSource,
+        validatedEventKafkaSource,
+        s3,
+        s3FileOutput,
+        contentApiSegment);
   }
 
   @Override
-  public Integer call() throws Exception {
-    validateArgs();
-    startJoinLogJob();
-    return 0;
+  public Set<Class<? extends GeneratedMessageV3>> getProtoClasses() {
+    Set<Class<? extends GeneratedMessageV3>> protoClasses =
+        ImmutableSet.<Class<? extends GeneratedMessageV3>>builder()
+            .addAll(super.getProtoClasses())
+            // The join job serializes these types.  The segments do not serialize them.
+            .add(CombinedDeliveryLog.class)
+            .add(Request.class)
+            .add(Response.class)
+            .add(Insertion.class)
+            .add(TinyAction.class)
+            .add(TinyActionPath.class)
+            .add(TinyJoinedImpression.class)
+            .add(TinyDeliveryLog.class)
+            .add(TinyInsertion.class)
+            .add(TinyImpression.class)
+            .add(UnionEvent.class)
+            .build();
+    return protoClasses;
   }
 
   @Override
-  public void validateArgs() {
-    Preconditions.checkArgument(maxParallelism > 0, "--maxParalllelism must be set");
-    if (writeHudiTables) {
-      Preconditions.checkArgument(
-          !hudiSideDatabaseName.isBlank(), "--hudiSideDatabaseName must be set");
-    }
-    kafkaSegment.validateArgs();
-    metricsApiKafkaSource.validateArgs();
-    flatOutputKafka.validateArgs();
-    s3.validateArgs();
-    s3FileOutput.validateArgs();
-    hudiOutput.validateArgs();
-    contentApiSegment.validateArgs();
-  }
-
-  @Override
-  public List<Class<? extends GeneratedMessageV3>> getProtoClasses() {
-    return ImmutableList.<Class<? extends GeneratedMessageV3>>builder()
-        .addAll(kafkaSegment.getProtoClasses())
-        .addAll(metricsApiKafkaSource.getProtoClasses())
-        .addAll(flatOutputKafka.getProtoClasses())
-        .addAll(s3.getProtoClasses())
-        .addAll(s3FileOutput.getProtoClasses())
-        .addAll(hudiOutput.getProtoClasses())
-        .add(LatestImpression.class)
-        .add(Diagnostics.class)
-        .add(TinyEvent.class)
-        .add(TinyDeliveryLog.class)
-        .add(UnionEvent.class)
-        .build();
-  }
-
-  private void startJoinLogJob() throws Exception {
+  protected void startJob() throws Exception {
     StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
     configureExecutionEnvironment(env, parallelism, maxParallelism);
-
-    // I think this is safe to change but I didn't want to in case this breaks anything.
-    MetricsApiKafkaSource.SplitSources splitLogRequest =
-        metricsApiKafkaSource.splitSources(env, toKafkaConsumerGroupId("joinuser"), null);
+    StreamTableEnvironment tEnv = StreamTableEnvironment.create(env);
+    setTableEnv(tEnv);
+    String kafkaGroupId = toKafkaConsumerGroupId("join");
 
     // TODO: deal with missing log user ids for pre-luid events
     executeJoinEvents(
-        splitLogRequest.getRawViewSource(),
-        splitLogRequest.getRawDeliveryLogSource(),
-        rawImpressionSegment.getDeduplicatedImpression(splitLogRequest.getRawImpressionSource()),
-        rawActionSegment.getDeduplicatedAction(splitLogRequest.getRawActionSource()));
-
+        validatedEventKafkaSource.getDeliveryLogSource(env, kafkaGroupId),
+        validatedEventKafkaSource.getImpressionSource(env, kafkaGroupId),
+        validatedEventKafkaSource.getActionSource(env, kafkaGroupId));
+    prepareToExecute();
     LOGGER.info("{}.executionPlan\n{}", getJobName(), env.getExecutionPlan());
     env.execute(getJobName());
   }
 
-  /** Returns the name of the Flink join job. */
   @Override
-  protected String getJobName() {
-    return prefixJobLabel("join-event");
+  public void tableOperationsToDataStream() {
+    paimonSegment.getStatementSet().attachAsDataStream();
+  }
+
+  @Override
+  public void validateArgs() {
+    super.validateArgs();
+    Preconditions.checkArgument(
+        !mergeImpressionDetailsMissingOutputDelay.isNegative(),
+        "--mergeImpressionDetailsMissingOutputDelay should not be negative.");
+    Preconditions.checkArgument(
+        !mergeActionDetailsMissingOutputDelay.isNegative(),
+        "--mergeActionDetailsMissingOutputDelay should not be negative.");
+  }
+
+  @Override
+  protected String getDefaultBaseJobName() {
+    return "join-event";
   }
 
   /** Known edge cases: - late correct LHS with the same surrogate key of an existing LHS */
   @VisibleForTesting
   void executeJoinEvents(
-      DataStream<View> rawViewInput,
-      DataStream<DeliveryLog> rawDeliveryLogInput,
-      DataStream<Impression> rawImpressionInput,
-      DataStream<Action> rawActionInput)
+      DataStream<DeliveryLog> deliveryLog,
+      DataStream<Impression> impression,
+      DataStream<Action> action)
       throws Exception {
-    if (writeHudiTables) {
-      hudiOutput.open();
-    }
-
-    // Set the Kafka timestamps as the logTimestamps.
-    // TODO - make sure we are not setting logTimestamp in other spots (I assume inferred refs sets
-    // it too).
 
     // TODO - have a better output file format that is easier to analyze.
     // - error_type
     // - the raw record.
 
-    SingleOutputStreamOperator<View> validatedView =
-        add(rawViewInput.process(SetLogTimestamp.forView), "set-view-log-timestamp");
-    validatedView = add(validatedView.process(new ValidateView()), "validate-view");
+    // TODO - detect and output late events here.
+    /*
+    outputLateEvents(
+        "insertion_impression_insertion",
+        LateTinyInsertion::getFlinkEventTimestamp,
+        outputs.lateInsertions());
+    outputLateEvents(
+        "insertion_impression_impression",
+        LateTinyImpression::getFlinkEventTimestamp,
+        outputs.lateImpressions());
+     */
 
-    SingleOutputStreamOperator<DeliveryLog> validatedDeliveryLog =
-        add(
-            rawDeliveryLogInput.process(SetLogTimestamp.forDeliveryLog),
-            "set-delivery-log-log-timestamp");
-    validatedDeliveryLog =
-        add(validatedDeliveryLog.process(new ValidateDeliveryLog()), "validate-delivery-log");
+    // TODO - remove TinyView from protos.
 
-    SingleOutputStreamOperator<Impression> validatedImpression =
-        add(
-            rawImpressionInput.process(SetLogTimestamp.forImpression),
-            "set-impression-log-timestamp");
-    validatedImpression =
-        add(validatedImpression.process(new ValidateImpression()), "validate-impression");
-
-    SingleOutputStreamOperator<Action> validatedAction =
-        add(rawActionInput.process(SetLogTimestamp.forAction), "set-action-log-timestamp");
-    validatedAction = add(validatedAction.process(new ValidateAction()), "validate-action");
-
-    // Remove DeliveryLogs that we do not want to consider in inferred refs.
-    // Do this before writing to the side.all_delivery_log... so we can improve throughput.
-    validatedDeliveryLog =
-        add(validatedDeliveryLog.map(new RestructureDeliveryLog()), "restructure-delivery-log");
-    SingleOutputStreamOperator<DeliveryLog> unkeyedFilteredDeliveryLogs =
-        filterShouldJoin(validatedDeliveryLog);
-    unkeyedFilteredDeliveryLogs = filterNonBotDeliveryLogs(unkeyedFilteredDeliveryLogs);
-    unkeyedFilteredDeliveryLogs = fixDeliveryLogStream(unkeyedFilteredDeliveryLogs);
-
-    outputValidationError(
-        validatedView
-            .getSideOutput(BaseValidate.INVALID_TAG)
-            .union(validatedDeliveryLog.getSideOutput(BaseValidate.INVALID_TAG))
-            .union(validatedImpression.getSideOutput(BaseValidate.INVALID_TAG))
-            .union(validatedAction.getSideOutput(BaseValidate.INVALID_TAG)));
-
-    SingleOutputStreamOperator<View> filteredViews = filterNonBotViews(validatedView);
-
+    // TODO - remove View from the join protos.  We're not actively using it.  It simplifies the
+    // schemas.
     SingleOutputStreamOperator<CombinedDeliveryLog> combinedDeliveryLogs =
-        add(
-            unkeyedFilteredDeliveryLogs
-                .keyBy(KeyUtil.deliveryLogLogUserIdKey)
-                // Support a simple PassThroughCombineDeliveryLog for tests.
-                // We need to delay the Watermark since CombineDeliveryLog can delay outputs up to
-                // the window.
-                // If we do not delay the watermark, the inferred reference code will mark the
-                // delayed output
-                // as late.
-                // Warning - this is a weird spot to delay for synthetic DeliveryLogs.  Trying to
-                // delay
-                // this closer to window/aggregate code fails with a message saying the timer
-                // service has
-                // not been initialized.
-                .transform(
-                    "combine-delivery-log",
-                    TypeInformation.of(CombinedDeliveryLog.class),
-                    new KeyedProcessOperatorWithWatermarkDelay<>(
-                        new CombineDeliveryLog(combineDeliveryLogWindow, getDebugIds()),
-                        combineDeliveryLogWindow.toMillis(),
-                        textLogWatermarks)),
-            "combine-delivery-log");
+        toCombinedDeliveryLogs(deliveryLog);
 
-    KeyedStream<TinyEvent, Tuple2<Long, String>> keyedSmallViewInput =
-        toTinyView(filteredViews, "map-tiny-view").keyBy(KeyUtil.TinyEventLogUserIdKey);
-    KeyedStream<TinyDeliveryLog, Tuple2<Long, String>> smallDeliveryLogInput =
-        toTinyDeliveryLog(combinedDeliveryLogs).keyBy(KeyUtil.TinyDeliveryLogLogUserIdKey);
-    KeyedStream<TinyEvent, Tuple2<Long, String>> smallImpressionInput =
-        toTinyImpression(validatedImpression).keyBy(KeyUtil.TinyEventLogUserIdKey);
-    SingleOutputStreamOperator<TinyEvent> tinyActions = toTinyAction(validatedAction);
-    if (contentApiSegment.shouldJoinOtherContentIds()) {
-      // Dan: I'm not sure if keying by contentId decreases the number of times the same content
-      // appears in a cache.
-      KeyedStream<TinyEvent, Tuple2<Long, String>> keyedContentIdTinyAction =
-          tinyActions.keyBy(KeyUtil.TinyEventContentIdKey);
-      tinyActions =
-          add(
-              contentApiSegment.joinOtherContentIdsFromContentService(keyedContentIdTinyAction),
-              "add-action-other-content-ids");
-    }
-    outputDebugRecords("rhs_tiny_action", TinyEvent::getLogTimestamp, tinyActions);
+    SingleOutputStreamOperator<TinyInsertion> tinyInsertions =
+        toTinyInsertion(combinedDeliveryLogs);
+    SingleOutputStreamOperator<TinyImpression> tinyImpressions = toTinyImpression(impression);
 
-    KeyedStream<TinyEvent, Tuple2<Long, String>> keyedTinyActionInput =
-        tinyActions.keyBy(KeyUtil.TinyEventLogUserIdKey);
+    SingleOutputStreamOperator<TinyJoinedImpression> tinyJoinedImpressions =
+        joinImpressions(tinyInsertions, tinyImpressions);
 
-    ViewResponseInsertionProcessFunction viewResponseInsertionProcessFunction =
-        new ViewResponseInsertionProcessFunction(
-            Options.builder()
-                .setSkipJoin(skipViewJoin)
-                .setRightOuterJoin(true)
-                .setMaxTime(skipViewJoin ? Duration.ZERO : viewInsertionJoinMin)
-                .setMaxOutOfOrder(skipViewJoin ? Duration.ZERO : viewInsertionJoinMax)
-                .setCheckLateness(checkLateness)
-                .setIdJoinDurationMultiplier(skipViewJoin ? 1 : idJoinDurationMultiplier)
-                .setDebugIds(getDebugIds())
-                .build());
+    // TODO - it's weird to unnest here and later with other_content_ids.
+    SingleOutputStreamOperator<TinyAction> tinyActions = toTinyAction(action);
+    outputDebugRecords(
+        "rhs_tiny_action",
+        tinyAction -> tinyAction.getCommon().getEventApiTimestamp(),
+        "common.event_api_timestamp",
+        tinyActions);
 
-    SingleOutputStreamOperator<TinyEvent> unkeyedViewToInsertions =
-        add(
-            keyedSmallViewInput
-                .connect(smallDeliveryLogInput)
-                .transform(
-                    "join-view-insertions",
-                    flatTypeInfo,
-                    InferenceOperator.of(viewResponseInsertionProcessFunction, textLogWatermarks)),
-            "join-view-responseinsertions");
+    // Unnest to simplify the next joins.
+    // TODO - have a better materialized proto.
+    // TODO - evaluate doing other_content_id lookups, unnesting and cart unnesting in Flink SQL.
+
+    // TODO - Xingcan: this is not used any more. We can safely remove the logic after some tests.
+    // SingleOutputStreamOperator<UnnestedTinyJoinedImpression> unnestedJoinedImpressions =
+    //    add(
+    //        tinyJoinedImpressions.process(new MaterializeAndUnnestJoinedImpression()),
+    //        "materialize-and-unnest-joined-impression");
+    SingleOutputStreamOperator<UnnestedTinyAction> unnestedTinyActions =
+        add(tinyActions.process(new UnnestTinyAction()), "unnest-tiny-action");
+
+    DataStream<TinyActionPath> actionPaths =
+        joinActions(tinyJoinedImpressions, unnestedTinyActions);
+
+    /*
     outputLateEvents(
-        "view_responseinsertions",
-        unkeyedViewToInsertions.getSideOutput(
-            ViewResponseInsertionProcessFunction.LATE_EVENTS_TAG));
-    outputDroppedEvents(
-        "view_responseinsertions",
-        viewResponseInsertionProcessFunction.getRightLogTimeGetter(),
-        "log_timestamp",
-        unkeyedViewToInsertions.getSideOutput(
-            viewResponseInsertionProcessFunction.getDroppedEventsTag()));
-
-    // Join content IDs after the View-DeliveryLog join.  This keeps the View-DeliveryLog join more
-    // efficient.
-
-    // TODO - how is the watermark impacted?
-    if (contentApiSegment.shouldJoinOtherContentIds()) {
-      // Dan: I'm not sure if keying by contentId decreases the number of times the same content
-      // appears in a cache.
-      KeyedStream<TinyEvent, Tuple2<Long, String>> keyedContentIdViewToInsertions =
-          unkeyedViewToInsertions.keyBy(KeyUtil.TinyEventContentIdKey);
-      unkeyedViewToInsertions =
-          add(
-              contentApiSegment.joinOtherContentIdsFromContentService(
-                  keyedContentIdViewToInsertions),
-              "add-insertion-other-content-ids");
-    }
-    KeyedStream<TinyEvent, Tuple2<Long, String>> viewToInsertions =
-        unkeyedViewToInsertions.keyBy(KeyUtil.TinyEventLogUserIdKey);
-    outputPartialResponseInsertion(unkeyedViewToInsertions);
-
-    InsertionImpressionProcessFunction insertionImpressionProcessFunction =
-        new InsertionImpressionProcessFunction(
-            Options.builder()
-                .setMaxTime(insertionImpressionJoinMin)
-                .setMaxOutOfOrder(insertionImpressionJoinMax)
-                .setCheckLateness(checkLateness)
-                .setIdJoinDurationMultiplier(idJoinDurationMultiplier)
-                .setDebugIds(getDebugIds())
-                .build());
-    SingleOutputStreamOperator<TinyEvent> unkeyedViewToImpressions =
-        add(
-            viewToInsertions
-                .connect(smallImpressionInput)
-                .transform(
-                    "join-insertion-impressions",
-                    flatTypeInfo,
-                    InferenceOperator.of(insertionImpressionProcessFunction, textLogWatermarks)),
-            "join-insertion-impressions");
-    KeyedStream<TinyEvent, Tuple2<Long, String>> viewToImpressions =
-        unkeyedViewToImpressions.keyBy(KeyUtil.TinyEventLogUserIdKey);
+        "impression_action_path_impressions",
+        LateTinyJoinedImpression::getFlinkEventTimestamp,
+        unkeyedInsertionToActionPaths.getSideOutput(
+            ImpressionActionProcessFunction.LATE_TINY_JOINED_IMPRESSION_TAG));
     outputLateEvents(
-        "insertion_impressions",
-        unkeyedViewToImpressions.getSideOutput(InsertionImpressionProcessFunction.LATE_EVENTS_TAG));
-    outputDroppedEvents(
-        "insertion_impressions",
-        insertionImpressionProcessFunction.getRightLogTimeGetter(),
-        "log_timestamp",
-        unkeyedViewToImpressions.getSideOutput(
-            insertionImpressionProcessFunction.getDroppedEventsTag()));
-
-    ImpressionActionProcessFunction impressionActionProcessFunction =
-        new ImpressionActionProcessFunction(
-            Options.builder()
-                .setMaxTime(impressionActionJoinMin)
-                .setMaxOutOfOrder(impressionActionJoinMax)
-                .setCheckLateness(checkLateness)
-                .setIdJoinDurationMultiplier(idJoinDurationMultiplier)
-                .setDebugIds(getDebugIds())
-                .build(),
-            contentApiSegment.contentIdFieldKeys);
-    SingleOutputStreamOperator<TinyEvent> unkeyedViewToActions =
-        add(
-            viewToImpressions
-                .connect(keyedTinyActionInput)
-                .transform(
-                    "join-impression-actions",
-                    flatTypeInfo,
-                    InferenceOperator.of(impressionActionProcessFunction, textLogWatermarks)),
-            "join-impression-actions");
-    KeyedStream<TinyEvent, Tuple2<Long, String>> viewToActions =
-        unkeyedViewToActions.keyBy(KeyUtil.TinyEventLogUserIdKey);
-    outputLateEvents(
-        "impression_actions",
-        unkeyedViewToActions.getSideOutput(ImpressionActionProcessFunction.LATE_EVENTS_TAG));
-    outputDroppedEvents(
-        "impression_actions",
-        impressionActionProcessFunction.getRightLogTimeGetter(),
-        "log_timestamp",
-        unkeyedViewToActions.getSideOutput(impressionActionProcessFunction.getDroppedEventsTag()));
-
+        "impression_action_actions",
+        LateTinyAction::getFlinkEventTimestamp,
+        unkeyedInsertionToActionPaths.getSideOutput(
+            ImpressionActionProcessFunction.LATE_TINY_ACTION_TAG));
+     */
     // Union the streams so we don't need to maintain as much duplicate state.
-    DataStream<TinyEvent> unionTinyEvent = viewToImpressions.union(viewToActions);
-
-    SingleOutputStreamOperator<TinyEvent> reducedEvents =
+    SingleOutputStreamOperator<TinyJoinedImpression> tinyJoinedImpression =
         add(
-            unionTinyEvent
-                .keyBy(RedundantImpressionKey::of)
-                .process(new ReduceRedundantTinyImpressions<>(impressionActionJoinMin.abs())),
-            "reduce-redundant-events");
-    outputDroppedEvents(
-        "redundant_impression",
-        TinyEvent::getLogTimestamp,
-        "log_timestamp",
-        reducedEvents.getSideOutput(ReduceRedundantTinyImpressions.REDUNDANT_IMPRESSION));
-    outputDebugRecords("tiny_event", TinyEvent::getLogTimestamp, reducedEvents);
+            tinyJoinedImpressions
+                .keyBy(RedundantEventKeys::forRedundantImpressionInImpressionStream)
+                .connect(
+                    actionPaths.keyBy(RedundantEventKeys::forRedundantImpressionInActionPathStream))
+                .process(
+                    new ReduceRedundantTinyImpressions<>(
+                        actionJoinSegment.impressionActionJoinMin.abs())),
+            "reduce-redundant-impressions");
 
-    DataStream<MismatchError> mismatchErrors =
-        unkeyedViewToInsertions
-            .getSideOutput(MismatchErrorTag.TAG)
-            .union(unkeyedViewToImpressions.getSideOutput(MismatchErrorTag.TAG))
-            .union(unkeyedViewToActions.getSideOutput(MismatchErrorTag.TAG));
+    SingleOutputStreamOperator<TinyAttributedAction> tinyAttributedAction =
+        toTinyAttributedAction(tinyJoinedImpression);
+
     enrichFilterAndFlatten(
-        reducedEvents,
-        filteredViews,
-        combinedDeliveryLogs,
-        validatedImpression,
-        validatedAction,
-        mismatchErrors);
-    if (writeHudiTables) {
-      hudiOutput.close();
-    }
+        tinyJoinedImpression, tinyAttributedAction, combinedDeliveryLogs, impression, action);
   }
 
-  // TODO - refactor this to a different class.  It'll make the separate more obvious.
+  // TODO - We could reduce load in extreme edge cases by removing some redundant events earlier
+  // in the join job. E.g. a user seeing the same item multiple times on repeat.
+  // This gets tricky based on how we want to deduplicate.
+
+  // TODO - check that event time works correctly.  Might be broken.
+  // TODO - Make sure CombineDeliveryLog doesn't delay event times.
+
+  private SingleOutputStreamOperator<TinyJoinedImpression> joinImpressions(
+      SingleOutputStreamOperator<TinyInsertion> unkeyedInsertions,
+      SingleOutputStreamOperator<TinyImpression> impressions) {
+    outputPartialResponseInsertion(unkeyedInsertions);
+
+    ImpressionJoinOutputs outputs =
+        impressionJoinSegment.joinImpressions(
+            this, this.tEnv, unkeyedInsertions, impressions, textLogWatermarks);
+
+    outputDroppedEvents(
+        "insertion_impressions",
+        tinyImpression -> tinyImpression.getCommon().getEventApiTimestamp(),
+        "common.event_api_timestamp",
+        outputs.droppedImpressions());
+
+    if (debugOutputBeforeReductionTinyEvents) {
+      outputDebugRecords(
+          "beforereduce_tiny_joined_impression",
+          tinyImpression -> tinyImpression.getImpression().getCommon().getEventApiTimestamp(),
+          "impression.common.event_api_timestamp",
+          outputs.joinedImpressions());
+    }
+
+    return outputs.joinedImpressions();
+  }
+
+  private DataStream<TinyActionPath> joinActions(
+      SingleOutputStreamOperator<TinyJoinedImpression> joinedImpressions,
+      SingleOutputStreamOperator<UnnestedTinyAction> actions) {
+    ActionPathAndDropped outputs =
+        actionJoinSegment.joinActions(
+            this, this.tEnv, joinedImpressions, actions, textLogWatermarks);
+
+    outputDroppedEvents(
+        "impression_actions",
+        action -> action.getCommon().getEventApiTimestamp(),
+        "common.event_api_timestamp",
+        outputs.droppedActions());
+
+    if (debugOutputBeforeReductionTinyEvents) {
+      outputDebugRecords(
+          "beforereduce_tiny_action_path",
+          actionPath -> actionPath.getAction().getCommon().getEventApiTimestamp(),
+          "action.common.event_api_timestamp",
+          outputs.actionPaths());
+    }
+
+    return outputs.actionPaths();
+  }
 
   /**
    * The second phase of the join. The first phase validates and joins the stream of TinyEvents
@@ -653,45 +517,33 @@ public class FlatOutputJob extends BaseFlinkJob {
    * eventually refactor it into a different Flink job. This is difficult right now because the
    * validation logic is coupled to the first part of the job.
    *
-   * @param tinyEvent Unioned tiny Impression and Action stream. This is a combined stream to
-   *     support redundant impressions
-   * @param view Post validation and filtering
+   * @param tinyJoinedImpression tiny JoinedImpression stream
+   * @param tinyAttributedAction tiny AttributedAction stream
    * @param combinedDeliveryLog Post validation and filtering
    * @param impression Post validation and filtering
    * @param action Post validation and filtering
-   * @param mismatchErrors This is passed through to have one side output. When we split the job,
-   *     this does not need to be passed through
    */
   private void enrichFilterAndFlatten(
-      SingleOutputStreamOperator<TinyEvent> tinyEvent,
-      SingleOutputStreamOperator<View> view,
+      SingleOutputStreamOperator<TinyJoinedImpression> tinyJoinedImpression,
+      SingleOutputStreamOperator<TinyAttributedAction> tinyAttributedAction,
       SingleOutputStreamOperator<CombinedDeliveryLog> combinedDeliveryLog,
-      SingleOutputStreamOperator<Impression> impression,
-      SingleOutputStreamOperator<Action> action,
-      DataStream<MismatchError> mismatchErrors) {
-    SingleOutputStreamOperator<TinyEvent> tinyImpression =
-        add(
-            tinyEvent.filter(event -> event.getActionId().isEmpty()),
-            "filter-tiny-event-to-impression");
-    SingleOutputStreamOperator<TinyEvent> tinyAction =
-        add(
-            tinyEvent.filter(event -> !event.getActionId().isEmpty()),
-            "filter-tiny-event-to-action");
-
-    MergeDetailsOutputs mergeImpressionDetailsOutput =
-        mergeImpressionDetails(view, combinedDeliveryLog, impression, tinyImpression);
+      DataStream<Impression> impression,
+      DataStream<Action> action) {
+    MergeDetailsOutputs<JoinedImpression> mergeImpressionDetailsOutput =
+        mergeImpressionDetails(combinedDeliveryLog, impression, tinyJoinedImpression);
 
     // TODO - If we don't do the data lake, we can shift the MergeActionDetails to be a normal
     // interval join.
     // MergeImpressionDetails is still useful because we can consolidate DeliveryLog state into
     // fewer denormalized
     // copies by doing a special join.
-    MergeDetailsOutputs mergeActionDetailsOutput =
-        mergeActionDetails(mergeImpressionDetailsOutput.joinedEvent(), action, tinyAction);
+    MergeDetailsOutputs<AttributedAction> mergeActionDetailsOutput =
+        mergeActionDetails(
+            mergeImpressionDetailsOutput.joinedEvents(), action, tinyAttributedAction);
 
-    mismatchErrors =
-        mismatchErrors
-            .union(mergeImpressionDetailsOutput.mismatchErrors())
+    DataStream<MismatchError> mismatchErrors =
+        mergeImpressionDetailsOutput
+            .mismatchErrors()
             .union(mergeActionDetailsOutput.mismatchErrors());
 
     // Currently filters out non-buyer traffic.  We might add more over time.
@@ -700,90 +552,146 @@ public class FlatOutputJob extends BaseFlinkJob {
     //
     // TODO - filter out these events earlier.  We can include the filter conditions inside
     // TinyEvent and avoid the MergeDetails.
-    SingleOutputStreamOperator<JoinedEvent> filteredJoinedImpression =
-        filterJoinedEvent(mergeImpressionDetailsOutput.joinedEvent(), "impression");
-    SingleOutputStreamOperator<JoinedEvent> filteredJoinedAction =
-        filterJoinedEvent(mergeActionDetailsOutput.joinedEvent(), "action");
+    SingleOutputStreamOperator<JoinedImpression> filteredJoinedImpression =
+        filterJoinedImpression(mergeImpressionDetailsOutput.joinedEvents());
 
-    joinUserAndOutput(filteredJoinedImpression, filteredJoinedAction, mismatchErrors);
+    SingleOutputStreamOperator<AttributedAction> filteredAttributedAction =
+        filterAttributedAction(mergeActionDetailsOutput.joinedEvents());
+
+    joinUserAndOutput(filteredJoinedImpression, filteredAttributedAction, mismatchErrors);
   }
 
   /** Merges details onto tiny impressions. */
-  private MergeDetailsOutputs mergeImpressionDetails(
-      SingleOutputStreamOperator<View> view,
+  private MergeDetailsOutputs<JoinedImpression> mergeImpressionDetails(
       SingleOutputStreamOperator<CombinedDeliveryLog> combinedDeliveryLog,
-      SingleOutputStreamOperator<Impression> impression,
-      SingleOutputStreamOperator<TinyEvent> tinyImpression) {
+      DataStream<Impression> impression,
+      DataStream<TinyJoinedImpression> tinyImpression) {
     DataStream<UnionEvent> unkeyedFullUnionEvent =
-        toUnionEvent(view, combinedDeliveryLog, impression);
+        toUnionEventForImpressions(combinedDeliveryLog, impression);
     KeyedStream<UnionEvent, Tuple2<Long, String>> fullUnionEvent =
         unkeyedFullUnionEvent.keyBy(KeyUtil.unionEntityKeySelector);
-    KeyedStream<TinyEvent, Tuple2<Long, String>> keyedTinyImpression =
-        tinyImpression.keyBy(KeyUtil.TinyEventLogUserIdKey);
-    SingleOutputStreamOperator<JoinedEvent> joinedImpression =
+    KeyedStream<TinyJoinedImpression, Tuple2<Long, String>> keyedTinyImpression =
+        tinyImpression.keyBy(KeyUtil.tinyJoinedImpressionAnonUserIdKey);
+    SingleOutputStreamOperator<JoinedImpression> joinedImpression =
         add(
             fullUnionEvent.connect(keyedTinyImpression).process(createMergeImpressionDetails()),
             "merge-impression-details");
+    SideOutputDataStream<DroppedMergeImpressionDetails> dropped =
+        joinedImpression.getSideOutput(MergeImpressionDetails.DROPPED_TAG);
+
+    // Delay the watermark by the delay for missingOutputDelay.
+    joinedImpression =
+        add(
+            ProcessOperatorWithWatermarkAddition.addWatermarkDelay(
+                joinedImpression,
+                TypeInformation.of(JoinedImpression.class),
+                mergeImpressionDetailsMissingOutputDelay.negated(),
+                "delay-merge-impression-details-watermark",
+                textLogWatermarks),
+            "delay-merge-impression-details-watermark");
 
     outputDroppedMergeDetailsEvents(
         "merge_impression_details",
-        joinedImpression.getSideOutput(MergeImpressionDetails.DROPPED_TAG));
+        details -> details.getImpression().getImpression().getCommon().getEventApiTimestamp(),
+        "impression.impression.common.event_api_timestamp",
+        dropped);
     return MergeDetailsOutputs.create(
         joinedImpression, joinedImpression.getSideOutput(MismatchErrorTag.TAG));
   }
 
   /** Merges details onto tiny impressions. */
-  private MergeDetailsOutputs mergeActionDetails(
-      SingleOutputStreamOperator<JoinedEvent> joinedImpression,
-      SingleOutputStreamOperator<Action> action,
-      SingleOutputStreamOperator<TinyEvent> tinyImpression) {
-    DataStream<UnionEvent> unkeyedFullUnionEvent = toUnionEvent(joinedImpression, action);
+  private MergeDetailsOutputs<AttributedAction> mergeActionDetails(
+      SingleOutputStreamOperator<JoinedImpression> joinedImpression,
+      DataStream<Action> action,
+      SingleOutputStreamOperator<TinyAttributedAction> tinyAttributedActions) {
+    DataStream<UnionEvent> unkeyedFullUnionEvent = toUnionEventForActions(joinedImpression, action);
     KeyedStream<UnionEvent, Tuple2<Long, String>> fullUnionEvent =
         unkeyedFullUnionEvent.keyBy(KeyUtil.unionEntityKeySelector);
-    KeyedStream<TinyEvent, Tuple2<Long, String>> keyedTinyImpression =
-        tinyImpression.keyBy(KeyUtil.TinyEventLogUserIdKey);
-    SingleOutputStreamOperator<JoinedEvent> joinedAction =
+    KeyedStream<TinyAttributedAction, Tuple2<Long, String>> keyedTinyAttributedAction =
+        tinyAttributedActions.keyBy(KeyUtil.tinyAttributedActionAnonUserIdKey);
+    SingleOutputStreamOperator<AttributedAction> attributedAction =
         add(
-            fullUnionEvent.connect(keyedTinyImpression).process(createMergeActionDetails()),
+            fullUnionEvent.connect(keyedTinyAttributedAction).process(createMergeActionDetails()),
             "merge-action-details");
+    SideOutputDataStream<DroppedMergeActionDetails> dropped =
+        attributedAction.getSideOutput(MergeActionDetails.DROPPED_TAG);
+
+    // Delay the watermark by the delay for missingOutputDelay.
+    attributedAction =
+        add(
+            ProcessOperatorWithWatermarkAddition.addWatermarkDelay(
+                attributedAction,
+                TypeInformation.of(AttributedAction.class),
+                mergeActionDetailsMissingOutputDelay.negated(),
+                "delay-merge-action-details-watermark",
+                textLogWatermarks),
+            "delay-merge-action-details-watermark");
 
     outputDroppedMergeDetailsEvents(
-        "merge_action_details", joinedAction.getSideOutput(MergeActionDetails.DROPPED_TAG));
+        "merge_action_details",
+        details -> details.getAction().getAction().getCommon().getEventApiTimestamp(),
+        "action.action.common.event_api_timestamp",
+        dropped);
     return MergeDetailsOutputs.create(
-        joinedAction, joinedAction.getSideOutput(MismatchErrorTag.TAG));
+        attributedAction, attributedAction.getSideOutput(MismatchErrorTag.TAG));
   }
 
-  private SingleOutputStreamOperator<TinyEvent> toTinyView(DataStream<View> views, String uid) {
-    return add(
-        views.map(
-            view ->
-                TinyEvent.newBuilder()
-                    .setPlatformId(view.getPlatformId())
-                    .setLogUserId(view.getUserInfo().getLogUserId())
-                    .setLogTimestamp(view.getTiming().getLogTimestamp())
-                    .setViewId(view.getViewId())
-                    .build()),
-        uid);
-  }
+  private SingleOutputStreamOperator<CombinedDeliveryLog> toCombinedDeliveryLogs(
+      DataStream<DeliveryLog> deliveryLog) {
+    // Remove DeliveryLogs that we do not want to consider in inferred refs.
+    // Do this before writing to the side.all_delivery_log... so we can improve throughput.
+    SingleOutputStreamOperator<DeliveryLog> filteredDeliveryLogs = filterShouldJoin(deliveryLog);
+    filteredDeliveryLogs = filterNonBotDeliveryLogs(filteredDeliveryLogs);
+    // In Paimon, we'll use the main DeliveryLog table and remove these side tables.
+    if (!writePaimonTables) {
+      outputAllDeliveryLogVariants(filteredDeliveryLogs);
+    }
 
-  private SingleOutputStreamOperator<TinyDeliveryLog> toTinyDeliveryLog(
-      SingleOutputStreamOperator<CombinedDeliveryLog> combinedDeliveryLogs) {
-    return add(
-        combinedDeliveryLogs.map(new ToTinyDeliveryLog(contentApiSegment.contentIdFieldKeys)),
-        "map-tiny-delivery-log");
+    SingleOutputStreamOperator<CombinedDeliveryLog> combinedDeliveryLogs =
+        add(
+            filteredDeliveryLogs
+                .keyBy(KeyUtil.deliveryLogAnonUserIdKey)
+                // Support a simple PassThroughCombineDeliveryLog for tests.
+                // We need to delay the Watermark since CombineDeliveryLog can delay outputs up to
+                // the window.
+                // If we do not delay the watermark, the inferred reference code will mark the
+                // delayed output as late.
+                // Warning - this is a weird spot to delay for synthetic DeliveryLogs.
+                // Trying to delay this closer to window/aggregate code fails with a message saying
+                // the timer service has not been initialized.
+                .transform(
+                    "combine-delivery-log",
+                    TypeInformation.of(CombinedDeliveryLog.class),
+                    KeyedProcessOperatorWithWatermarkAddition.withDelay(
+                        new CombineDeliveryLog(getDebugIds()),
+                        combineDeliveryLogWindow,
+                        textLogWatermarks)),
+            "combine-delivery-log");
+
+    // PopulatingPagingId is done after CombineDeliveryLog so the paging_id can be copied from
+    // the API DeliveryLog to the SDK DeliveryLog.
+    //
+    // TODO - this would be slightly cleaner if done inside the ValidateEnrichJob.  That'd require
+    // running the same create paging_id function inside ValidateEnrichJob as in Delivery C++.
+    // That's a lot of work for very little value.
+    combinedDeliveryLogs =
+        add(combinedDeliveryLogs.map(new PopulatePagingId()), "populating-paging-id");
+    return combinedDeliveryLogs;
   }
 
   /** Used to have small dropped side outputs for DeliveryLogs. */
-  private SingleOutputStreamOperator<TinyEvent> toTinyDeliveryLogRequest(
+  private SingleOutputStreamOperator<TinyDeliveryLog> toTinyDeliveryLogRequest(
       DataStream<DeliveryLog> deliveryLogs, String uid) {
     return add(
         deliveryLogs.map(
             deliveryLog -> {
               Request request = deliveryLog.getRequest();
-              return TinyEvent.newBuilder()
-                  .setPlatformId(DeliveryLogUtil.getPlatformId(deliveryLog))
-                  .setLogUserId(request.getUserInfo().getLogUserId())
-                  .setLogTimestamp(request.getTiming().getLogTimestamp())
+              return TinyDeliveryLog.newBuilder()
+                  .setCommon(
+                      TinyCommonInfo.newBuilder()
+                          .setPlatformId(DeliveryLogUtil.getPlatformId(deliveryLog))
+                          .setAnonUserId(request.getUserInfo().getAnonUserId())
+                          .setEventApiTimestamp(request.getTiming().getEventApiTimestamp()))
                   .setViewId(request.getViewId())
                   .setRequestId(request.getRequestId())
                   .build();
@@ -791,20 +699,166 @@ public class FlatOutputJob extends BaseFlinkJob {
         uid);
   }
 
-  private SingleOutputStreamOperator<TinyEvent> toTinyImpression(
-      SingleOutputStreamOperator<Impression> impressions) {
-    return add(
-        impressions.map(new ToTinyImpression(contentApiSegment.contentIdFieldKeys)),
-        "map-tiny-impression");
+  private SingleOutputStreamOperator<TinyInsertion> toTinyInsertion(
+      DataStream<CombinedDeliveryLog> combinedDeliveryLogs) {
+    SingleOutputStreamOperator<TinyDeliveryLog> tinyDeliveryLog =
+        add(
+            combinedDeliveryLogs.map(new ToTinyDeliveryLog(contentApiSegment.contentIdFieldKeys)),
+            "map-tiny-delivery-log");
+    KeyedStream<TinyDeliveryLog, Tuple2<Long, String>> smallDeliveryLogInput =
+        tinyDeliveryLog.keyBy(KeyUtil.tinyDeliveryLogAnonUserIdKey);
+    SingleOutputStreamOperator<TinyInsertion> tinyInsertions =
+        add(
+            smallDeliveryLogInput.flatMap(
+                (dl, out) -> {
+                  List<TinyInsertion.Builder> builders =
+                      TinyFlatUtil.createTinyFlatResponseInsertions(TinyInsertion.newBuilder(), dl);
+                  for (TinyInsertion.Builder builder : builders) {
+                    out.collect(builder.build());
+                  }
+                },
+                TypeInformation.of(TinyInsertion.class)),
+            "to-tiny-insertion");
+
+    // TODO - how is the watermark impacted?
+    if (contentApiSegment.shouldJoinInsertionOtherContentIds()) {
+      tinyInsertions =
+          add(
+              contentApiSegment.joinOtherInsertionContentIdsFromContentService(
+                  tinyInsertions.keyBy(KeyUtil.tinyInsertionContentIdKey)),
+              "add-insertion-other-content-ids");
+    }
+    return tinyInsertions;
   }
 
-  // TODO - see if this is a breaking change.
-  private SingleOutputStreamOperator<TinyEvent> toTinyAction(
-      SingleOutputStreamOperator<Action> actions) {
-    return add(
-        actions.flatMap(new ToTinyAction(contentApiSegment.contentIdFieldKeys)), "map-tiny-action");
+  private SingleOutputStreamOperator<TinyImpression> toTinyImpression(
+      DataStream<Impression> impressions) {
+    return add(impressions.map(new ToTinyImpression()), "map-tiny-impression");
   }
 
+  private SingleOutputStreamOperator<TinyAction> toTinyAction(DataStream<Action> actions) {
+    SingleOutputStreamOperator<TinyAction> tinyActions =
+        add(
+            actions.flatMap(new ToTinyAction(contentApiSegment.contentIdFieldKeys)),
+            "map-tiny-action");
+    if (contentApiSegment.shouldJoinActionOtherContentIds()) {
+      KeyedStream<TinyAction, Tuple2<Long, String>> keyedContentIdTinyAction =
+          tinyActions.keyBy(KeyUtil.tinyActionContentIdKey);
+      tinyActions =
+          add(
+              contentApiSegment.joinOtherActionContentIdsFromContentService(
+                  keyedContentIdTinyAction),
+              "add-action-other-content-ids");
+    }
+    return tinyActions;
+  }
+
+  private SingleOutputStreamOperator<TinyAttributedAction> toTinyAttributedAction(
+      SingleOutputStreamOperator<TinyJoinedImpression> tinyJoinedImpression) {
+
+    outputDroppedEventsParquet(
+        "redundant_impression",
+        RedundantImpression::getEventApiTimestamp,
+        tinyJoinedImpression.getSideOutput(ReduceRedundantTinyImpressions.REDUNDANT_IMPRESSION),
+        RedundantImpression.class);
+
+    OutputTag<TinyActionPath> tinyPostNavigateActionPathTag =
+        new OutputTag<>("post-navigate-action-path", TypeInformation.of(TinyActionPath.class));
+    IsImpressionAction isImpressionAction =
+        new IsImpressionAction(
+            actionJoinSegment.impressionActionTypes, actionJoinSegment.impressionCustomActionTypes);
+    SingleOutputStreamOperator<TinyActionPath> tinyImpressionActionPath =
+        add(
+            tinyJoinedImpression
+                .getSideOutput(ReduceRedundantTinyImpressions.OUTPUT_ACTION_PATH)
+                .process(
+                    new FilterOperator<>(
+                        new IsImpressionActionPath(isImpressionAction),
+                        tinyPostNavigateActionPathTag)),
+            "split-tiny-action-path");
+
+    SideOutputDataStream<TinyActionPath> tinyPostNavigateActionPath =
+        tinyImpressionActionPath.getSideOutput(tinyPostNavigateActionPathTag);
+
+    // "IsImpression" Actions have a different reduction key since they're reduced by
+    // insertion_id instead of the content_id.  This allows sessions with multiple Impressions of
+    // the same content_id to multiple NAVIGATES attributed to them but post-NAVIGATE actions
+    // are reduced across multiple Impressions.
+    SingleOutputStreamOperator<TinyActionPath> reducedTinyIsImpressionActionPath =
+        add(
+            tinyImpressionActionPath
+                .keyBy(RedundantEventKeys::forRedundantActionsInImpressionActionPathStream)
+                .process(
+                    new ReduceRedundantTinyActions<>(
+                        actionJoinSegment.impressionActionJoinMin.abs(), getDebugIds())),
+            "reduce-redundant-actions-in-impression-action-paths");
+
+    SingleOutputStreamOperator<TinyActionPath> reducedTinyPostNavigateActionPath =
+        add(
+            tinyPostNavigateActionPath
+                .keyBy(RedundantEventKeys::forRedundantActionsInPostNavigateActionStream)
+                .process(
+                    new ReduceRedundantTinyActions<>(
+                        actionJoinSegment.impressionActionJoinMin.abs(), getDebugIds())),
+            "reduce-redundant-actions-in-post-navigate-action-paths");
+
+    DataStream<TinyActionPath> reducedTinyActionPath =
+        reducedTinyIsImpressionActionPath.union(reducedTinyPostNavigateActionPath);
+
+    outputDroppedEventsParquet(
+        "redundant_action",
+        RedundantAction::getEventApiTimestamp,
+        reducedTinyIsImpressionActionPath
+            .getSideOutput(ReduceRedundantTinyActions.REDUNDANT_ACTION)
+            .union(
+                reducedTinyPostNavigateActionPath.getSideOutput(
+                    ReduceRedundantTinyActions.REDUNDANT_ACTION)),
+        RedundantAction.class);
+
+    // TODO - remove "tiny_" and add a different identifier to the denormalized versions.
+    outputRecords(
+        "tiny_joined_impression",
+        joinedImpression -> joinedImpression.getImpression().getCommon().getEventApiTimestamp(),
+        "impression.common.event_api_timestamp",
+        tinyJoinedImpression);
+    outputRecords(
+        "tiny_action_path",
+        actionPath -> actionPath.getAction().getCommon().getEventApiTimestamp(),
+        "action.common.event_api_timestamp",
+        reducedTinyActionPath);
+
+    SingleOutputStreamOperator<TinyAttributedAction> tinyAttributedAction =
+        add(
+            reducedTinyActionPath.flatMap(new ToTinyAttributedAction()),
+            "to-tiny-attributed-action");
+
+    outputRecords(
+        "tiny_attributed_action",
+        attributedAction -> attributedAction.getAction().getCommon().getEventApiTimestamp(),
+        "action.common.event_api_timestamp",
+        tinyAttributedAction);
+    return tinyAttributedAction;
+  }
+
+  /**
+   * TODO - try to switch to a built-in join.
+   *
+   * <p>Currently, multiple things are broken.
+   *
+   * <p>Event times are inconsistent and wrong. This impacts the downstream operators.
+   *
+   * <ul>
+   *   <li>For full events, it depends on the last input time.
+   *   <li>For incomplete events, it depends on the event time + missingOutputDelay.
+   * </ul>
+   *
+   * <p>Downstream watermarks are not delayed for the missingOutputDelays.
+   *
+   * <p>It's unclear how late events will be handled. Depending on the ordering of inputs, it can
+   * either get fully populated or partially (and dropped). If multiple inputs for a key are
+   * delayed, delaying the timers has an issue since the tiny event time onTimer will fire before
+   * all of the data is present. The dropped records do not easily indicate why.
+   */
   private MergeImpressionDetails createMergeImpressionDetails() {
     // It's better to over allocate the clean-up delay than under allocate it.
 
@@ -819,25 +873,21 @@ public class FlatOutputJob extends BaseFlinkJob {
     // The maxes are added to the leaf clean-up to support out of order events.
     Duration impressionCleanupDelay =
         add(
-            viewInsertionJoinMax,
-            insertionImpressionJoinMax,
+            impressionJoinSegment.insertionImpressionJoinMaxOutOfOrder,
             combineDeliveryLogWindow,
-            mergeDetailsMissingOutputDelay,
+            mergeImpressionDetailsMissingOutputDelay,
             mergeDetailsCleanupBuffer);
-    Duration deliveryLogCleanupDelay = add(impressionCleanupDelay, insertionImpressionJoinMin);
-    Duration viewCleanupDelay = add(deliveryLogCleanupDelay, viewInsertionJoinMin);
+    Duration deliveryLogCleanupDelay =
+        add(impressionCleanupDelay, impressionJoinSegment.insertionImpressionJoinMin);
     LOGGER.info(
-        "setting up MergeImpressionDetails.  impressionCleanupDelay={}, deliveryLogCleanupDelay={}, viewCleanupDelay={}",
+        "setting up MergeImpressionDetails.  impressionCleanupDelay={}, deliveryLogCleanupDelay={}",
         impressionCleanupDelay,
-        deliveryLogCleanupDelay,
-        viewCleanupDelay);
+        deliveryLogCleanupDelay);
     return new MergeImpressionDetails(
-        viewCleanupDelay,
         deliveryLogCleanupDelay,
         impressionCleanupDelay,
         mergeDetailsCleanupPeriod,
-        mergeDetailsMissingOutputDelay,
-        skipViewJoin,
+        mergeImpressionDetailsMissingOutputDelay,
         batchCleanupAllMergeDetailsTimersBeforeTimestamp,
         getDebugIds());
   }
@@ -861,13 +911,13 @@ public class FlatOutputJob extends BaseFlinkJob {
     // The maxes are added to the leaf clean-up to support out of order events.
     Duration actionCleanupDelay =
         add(
-            viewInsertionJoinMax,
-            insertionImpressionJoinMax,
+            impressionJoinSegment.insertionImpressionJoinMaxOutOfOrder,
             combineDeliveryLogWindow,
-            impressionActionJoinMax,
-            mergeDetailsMissingOutputDelay,
+            actionJoinSegment.impressionActionJoinMaxOutOfOrder,
+            mergeActionDetailsMissingOutputDelay,
             mergeDetailsCleanupBuffer);
-    Duration joinedImpressionCleanupDelay = add(actionCleanupDelay, impressionActionJoinMin);
+    Duration joinedImpressionCleanupDelay =
+        add(actionCleanupDelay, actionJoinSegment.impressionActionJoinMin);
     LOGGER.info(
         "setting up MergeActionDetails.  actionCleanupDelay={}, joinedImpressionCleanupDelay={}",
         actionCleanupDelay,
@@ -876,23 +926,15 @@ public class FlatOutputJob extends BaseFlinkJob {
         joinedImpressionCleanupDelay,
         actionCleanupDelay,
         mergeDetailsCleanupPeriod,
-        mergeDetailsMissingOutputDelay,
+        mergeActionDetailsMissingOutputDelay,
         batchCleanupAllMergeDetailsTimersBeforeTimestamp,
         getDebugIds());
   }
 
-  private DataStream<UnionEvent> toUnionEvent(
-      SingleOutputStreamOperator<View> views,
+  private DataStream<UnionEvent> toUnionEventForImpressions(
       SingleOutputStreamOperator<CombinedDeliveryLog> deliveryLogs,
-      SingleOutputStreamOperator<Impression> impressions) {
-    SingleOutputStreamOperator<UnionEvent> unionViews =
-        add(
-            views.map(
-                view ->
-                    UnionEvent.newBuilder()
-                        .setView(FlatUtil.clearRedundantFlatViewFields(view.toBuilder()))
-                        .build()),
-            "map-view-to-union-event");
+      DataStream<Impression> impressions) {
+
     SingleOutputStreamOperator<UnionEvent> unionDeliveryLogs =
         add(
             deliveryLogs.map(
@@ -911,12 +953,11 @@ public class FlatOutputJob extends BaseFlinkJob {
                             FlatUtil.clearRedundantFlatImpressionFields(impression.toBuilder()))
                         .build()),
             "map-impression-to-union-event");
-    return unionViews.union(unionDeliveryLogs, unionImpressions);
+    return unionDeliveryLogs.union(unionImpressions);
   }
 
-  private DataStream<UnionEvent> toUnionEvent(
-      SingleOutputStreamOperator<JoinedEvent> joinedImpressions,
-      SingleOutputStreamOperator<Action> actions) {
+  private DataStream<UnionEvent> toUnionEventForActions(
+      SingleOutputStreamOperator<JoinedImpression> joinedImpressions, DataStream<Action> actions) {
     SingleOutputStreamOperator<UnionEvent> unionImpressions =
         add(
             joinedImpressions.map(
@@ -933,71 +974,35 @@ public class FlatOutputJob extends BaseFlinkJob {
             "map-action-to-union-event");
     return unionImpressions.union(unionActions);
   }
-  // This code is temporary.  We can remove it later.
-  @VisibleForTesting
-  SingleOutputStreamOperator<DeliveryLog> fixDeliveryLogStream(
-      SingleOutputStreamOperator<DeliveryLog> deliveryLogs) {
-    return withDebugIdLogger(
-        add(deliveryLogs.map(new FixDeliveryLog()), "prepare-delivery-log"), "rawDeliveryLogInput");
-  }
-
-  private SingleOutputStreamOperator<DeliveryLog> withDebugIdLogger(
-      SingleOutputStreamOperator<DeliveryLog> deliveryLogs, String label) {
-    DebugIds debugIds = getDebugIds();
-    if (!debugIds.hasAnyIds()) {
-      return deliveryLogs;
-    } else {
-      return add(
-          deliveryLogs.map(
-              deliveryLog -> {
-                if (debugIds.matches(deliveryLog)) {
-                  LOGGER.info("Found debugId in {}, deliveryLog={}", label, deliveryLog);
-                }
-                return deliveryLog;
-              }),
-          "match-debug-id-" + label + "-log");
-    }
-  }
 
   void joinUserAndOutput(
-      SingleOutputStreamOperator<JoinedEvent> joinedImpressions,
-      SingleOutputStreamOperator<JoinedEvent> joinedActions,
+      SingleOutputStreamOperator<JoinedImpression> joinedImpressions,
+      SingleOutputStreamOperator<AttributedAction> attributedActions,
       DataStream<MismatchError> mismatchErrors) {
     DebugIds debugIds = getDebugIds();
 
-    KeyedStream<JoinedEvent, Tuple2<Long, String>> keyedFlatImpressions =
-        joinedImpressions.keyBy(KeyUtil.joinedEventLogUserIdKey);
-    KeyedStream<JoinedEvent, Tuple2<Long, String>> keyedFlatActions =
-        joinedActions.keyBy(KeyUtil.joinedEventLogUserIdKey);
+    KeyedStream<JoinedImpression, Tuple2<Long, String>> keyedJoinedImpressions =
+        joinedImpressions.keyBy(KeyUtil.joinedImpressionAnonUserIdKey);
+    KeyedStream<AttributedAction, Tuple2<Long, String>> keyedAttributedActions =
+        attributedActions.keyBy(KeyUtil.attributedActionAnonUserIdKey);
 
     // TODO - group together attribution models.
     SingleOutputStreamOperator<FlatResponseInsertion> flatResponseInsertions =
-        cogroupFlatResponseInsertions(keyedFlatImpressions, keyedFlatActions);
+        cogroupFlatResponseInsertions(keyedJoinedImpressions, keyedAttributedActions);
     // Currently this should only happen during edge cases.
     // This might become more common after we support outer joins with DeliveryLog.
     flatResponseInsertions = filterFlatResponseInsertion(flatResponseInsertions);
-
-    if (addLatestImpressions) {
-      // TODO - delay watermark?
-      joinedActions =
-          add(
-              keyedFlatActions
-                  .connect(keyedFlatImpressions)
-                  .process(
-                      new AddLatestImpressions(extraAddLatestImpressionOutOfOrderness, devMode)),
-              "join-latest-impressions");
-    }
 
     if (writeMismatchError) {
       outputMismatchError(mismatchErrors);
     }
 
-    outputJoinedEvents("etl", joinedImpressions, joinedActions, flatResponseInsertions);
+    outputJoinedEvents("etl", joinedImpressions, attributedActions, flatResponseInsertions);
   }
 
   private SingleOutputStreamOperator<FlatResponseInsertion> cogroupFlatResponseInsertions(
-      KeyedStream<JoinedEvent, Tuple2<Long, String>> keyedFlatImpressions,
-      KeyedStream<JoinedEvent, Tuple2<Long, String>> keyedFlatActions) {
+      KeyedStream<JoinedImpression, Tuple2<Long, String>> keyedJoinedImpressions,
+      KeyedStream<AttributedAction, Tuple2<Long, String>> keyedAttributedActions) {
 
     // TODO - evaluate switching to key by our usual Tuple2 and do our own window join.
     // CR: this is going to be very memory intensive.
@@ -1005,19 +1010,20 @@ public class FlatOutputJob extends BaseFlinkJob {
     // instead of using flink streaming?
     SingleOutputStreamOperator<FlatResponseInsertion> flatResponseInsertions =
         add(
-            keyedFlatImpressions
-                .coGroup(keyedFlatActions)
-                .where(KeyUtil.joinedEventLogUserInsertionKey)
-                .equalTo(KeyUtil.joinedEventLogUserInsertionKey)
+            keyedJoinedImpressions
+                .coGroup(keyedAttributedActions)
+                .where(KeyUtil.joinedImpressionAnonUserInsertionKey)
+                .equalTo(KeyUtil.attributedActionAnonUserInsertionKey)
                 .window(
                     EventTimeSessionWindows.withGap(toFlinkTime(flatResponseInsertionGapDuration)))
                 // TODO: switch to apply with flink 2.0+.
                 .with(
-                    new CoGroupFunction<JoinedEvent, JoinedEvent, FlatResponseInsertion>() {
+                    new CoGroupFunction<
+                        JoinedImpression, AttributedAction, FlatResponseInsertion>() {
                       @Override
                       public void coGroup(
-                          Iterable<JoinedEvent> impressions,
-                          Iterable<JoinedEvent> actions,
+                          Iterable<JoinedImpression> impressions,
+                          Iterable<AttributedAction> actions,
                           Collector<FlatResponseInsertion> out) {
                         out.collect(
                             FlatUtil.createFlatResponseInsertion(impressions, actions).build());
@@ -1043,24 +1049,44 @@ public class FlatOutputJob extends BaseFlinkJob {
     return flatResponseInsertions;
   }
 
-  private SingleOutputStreamOperator<JoinedEvent> filterJoinedEvent(
-      SingleOutputStreamOperator<JoinedEvent> joinedEvents, String recordType) {
-    // Concat so recordType can be kept as "impression" and "action".
-    recordType = "joined_" + recordType;
-    joinedEvents =
+  // TODO - move these filters to happen before denormalization.  We want these to be filtered
+  // out in the main tiny_joined_impression and tiny_attributed_action outputs too.
+  private SingleOutputStreamOperator<JoinedImpression> filterJoinedImpression(
+      SingleOutputStreamOperator<JoinedImpression> joinedImpressions) {
+    SingleOutputStreamOperator<JoinedImpression> filteredJoinedImpression =
         filterOutIgnoreUsage(
-            joinedEvents,
-            recordType,
-            JoinedEvent.class,
+            joinedImpressions,
+            "joined_impression",
+            JoinedImpression.class,
             FlatUtil::hasIgnoreUsage,
-            joined -> joined.getTiming().getLogTimestamp());
+            joined -> joined.getTiming().getEventApiTimestamp(),
+            "timing.event_api_timestamp");
     return filterBuyer(
-        joinedEvents,
-        recordType,
-        JoinedEvent.class,
-        JoinedEvent::getApiExecutionInsertion,
-        joined -> joined.getTiming().getLogTimestamp(),
-        "timing.log_timestamp");
+        filteredJoinedImpression,
+        "joined_impression",
+        JoinedImpression.class,
+        JoinedImpression::getApiExecutionInsertion,
+        joined -> joined.getTiming().getEventApiTimestamp(),
+        "timing.event_api_timestamp");
+  }
+
+  private SingleOutputStreamOperator<AttributedAction> filterAttributedAction(
+      SingleOutputStreamOperator<AttributedAction> attributedAction) {
+    SingleOutputStreamOperator<AttributedAction> filteredAttributedAction =
+        filterOutIgnoreUsage(
+            attributedAction,
+            "attributed_action",
+            AttributedAction.class,
+            FlatUtil::hasIgnoreUsage,
+            attributed -> attributed.getAction().getTiming().getEventApiTimestamp(),
+            "action.timing.event_api_timestamp");
+    return filterBuyer(
+        filteredAttributedAction,
+        "attributed_action",
+        AttributedAction.class,
+        attributed -> attributed.getTouchpoint().getJoinedImpression().getApiExecutionInsertion(),
+        attributed -> attributed.getAction().getTiming().getEventApiTimestamp(),
+        "action.timing.event_api_timestamp");
   }
 
   private SingleOutputStreamOperator<FlatResponseInsertion> filterFlatResponseInsertion(
@@ -1071,18 +1097,18 @@ public class FlatOutputJob extends BaseFlinkJob {
             "flat_response_insertion",
             FlatResponseInsertion.class,
             FlatUtil::hasIgnoreUsage,
-            flat -> flat.getTiming().getLogTimestamp());
+            flat -> flat.getTiming().getEventApiTimestamp(),
+            "timing.event_api_timestamp");
     return filterBuyer(
         flatResponseInsertions,
         "flat_response_insertion",
         FlatResponseInsertion.class,
         FlatResponseInsertion::getApiExecutionInsertion,
-        flat -> flat.getTiming().getLogTimestamp(),
-        "timing.log_timestamp");
+        flat -> flat.getTiming().getEventApiTimestamp(),
+        "timing.event_api_timestamp");
   }
 
-  private SingleOutputStreamOperator<DeliveryLog> filterShouldJoin(
-      SingleOutputStreamOperator<DeliveryLog> events) {
+  private SingleOutputStreamOperator<DeliveryLog> filterShouldJoin(DataStream<DeliveryLog> events) {
     // Use TinyEvent to keep the records small.
     OutputTag<DeliveryLog> tag =
         new OutputTag("should-not-join", TypeInformation.of(DeliveryLog.class));
@@ -1090,12 +1116,12 @@ public class FlatOutputJob extends BaseFlinkJob {
         add(
             events.process(new FilterOperator<>(DeliveryLogUtil::shouldJoin, tag)),
             "filter-delivery-log-should-join");
-    SingleOutputStreamOperator<TinyEvent> tinyDroppedDeliveryLogs =
+    SingleOutputStreamOperator<TinyDeliveryLog> tinyDroppedDeliveryLogs =
         toTinyDeliveryLogRequest(result.getSideOutput(tag), "map-should-join-tiny-delivery-log");
     outputDroppedEvents(
         "delivery_log_should_not_join",
-        TinyEvent::getLogTimestamp,
-        "log_timestamp",
+        tinyDeliveryLog -> tinyDeliveryLog.getCommon().getEventApiTimestamp(),
+        "common.event_api_timestamp",
         tinyDroppedDeliveryLogs);
     return result;
   }
@@ -1108,26 +1134,13 @@ public class FlatOutputJob extends BaseFlinkJob {
         add(
             events.process(new FilterOperator<>(BotUtil::isNotBot, tag)),
             "filter-delivery-log-is-bot");
-    SingleOutputStreamOperator<TinyEvent> tinyDroppedDeliveryLogs =
+    SingleOutputStreamOperator<TinyDeliveryLog> tinyDroppedDeliveryLogs =
         toTinyDeliveryLogRequest(result.getSideOutput(tag), "map-is-bot-tiny-delivery-log");
     outputDroppedEvents(
         "delivery_log_is_bot",
-        TinyEvent::getLogTimestamp,
-        "log_timestamp",
+        tinyDeliveryLog -> tinyDeliveryLog.getCommon().getEventApiTimestamp(),
+        "common.event_api_timestamp",
         tinyDroppedDeliveryLogs);
-    return result;
-  }
-
-  private SingleOutputStreamOperator<View> filterNonBotViews(
-      SingleOutputStreamOperator<View> events) {
-    // Use TinyEvent to keep the records small.
-    OutputTag<View> tag = new OutputTag("has-bot", TypeInformation.of(View.class));
-    SingleOutputStreamOperator<View> result =
-        add(events.process(new FilterOperator<>(BotUtil::isNotBot, tag)), "filter-view-is-bot");
-    SingleOutputStreamOperator<TinyEvent> tinyDroppedDeliveryLogs =
-        toTinyView(result.getSideOutput(tag), "map-is-bot-tiny-view");
-    outputDroppedEvents(
-        "view_is_bot", TinyEvent::getLogTimestamp, "log_timestamp", tinyDroppedDeliveryLogs);
     return result;
   }
 
@@ -1136,14 +1149,18 @@ public class FlatOutputJob extends BaseFlinkJob {
       String recordType,
       Class<T> clazz,
       SerializablePredicate<T> isNotIgnoreUsage,
-      SerializableToLongFunction<T> getLogTimestamp) {
+      SerializableToLongFunction<T> getEventApiTimestamp,
+      String timestampExp) {
     OutputTag<T> tag = new OutputTag("filtered-out", TypeInformation.of(clazz));
     SingleOutputStreamOperator<T> result =
         add(
             events.process(new FilterOperator<>(SerializablePredicates.not(isNotIgnoreUsage), tag)),
             "filter-out-ignore-usage-" + recordType);
     outputDroppedEvents(
-        "ignore_usage_" + recordType, getLogTimestamp, "log_timestamp", result.getSideOutput(tag));
+        "ignore_usage_" + recordType,
+        getEventApiTimestamp,
+        timestampExp,
+        result.getSideOutput(tag));
     return result;
   }
 
@@ -1152,7 +1169,7 @@ public class FlatOutputJob extends BaseFlinkJob {
       String recordType,
       Class<T> clazz,
       SerializableFunction<T, Insertion> getApiExecutionInsertion,
-      SerializableToLongFunction<T> getLogTimestamp,
+      SerializableToLongFunction<T> getEventApiTimestamp,
       String timestampExp) {
     if (nonBuyerUserSparseHashes.isEmpty()) {
       return events;
@@ -1165,67 +1182,75 @@ public class FlatOutputJob extends BaseFlinkJob {
                     new BuyerPredicate<>(nonBuyerUserSparseHashes, getApiExecutionInsertion), tag)),
             "filter-buyer-" + recordType);
     outputDroppedEvents(
-        "non_buyer_" + recordType, getLogTimestamp, timestampExp, result.getSideOutput(tag));
+        "non_buyer_" + recordType, getEventApiTimestamp, timestampExp, result.getSideOutput(tag));
     return result;
   }
 
   void outputJoinedEvents(
       String pathPrefix,
-      DataStream<JoinedEvent> joinedImpressions,
-      DataStream<JoinedEvent> joinedActions,
-      DataStream<FlatResponseInsertion> flatResponseInsertions) {
+      SingleOutputStreamOperator<JoinedImpression> joinedImpressions,
+      SingleOutputStreamOperator<AttributedAction> attributedActions,
+      SingleOutputStreamOperator<FlatResponseInsertion> flatResponseInsertions) {
     // TODO: fix latest impressions stuff to only attach to output needed for aws personalize
     // and our own modelling (if needed).  right now all flat action ouputs have them.
 
-    // Strip our userId.
-    joinedImpressions =
-        add(joinedImpressions.map(UserInfoUtil::clearUserId), "clear-user-id-joined-impressions");
-    joinedActions =
-        add(joinedActions.map(UserInfoUtil::clearUserId), "clear-user-id-joined-actions");
-    flatResponseInsertions =
-        add(
-            flatResponseInsertions.map(UserInfoUtil::clearUserId),
-            "clear-user-id-flat-response-insertions");
-
     if (writeJoinedEventsToKafka) {
-      // Note that we're sending both flat impression and action streams to the same topic
-      flatOutputKafka.addJoinedEventSink(
-          joinedImpressions.union(joinedActions),
-          flatOutputKafka.getJoinedEventTopic(getJobLabel()));
-    }
-
-    if (writeFlatResponseInsertionsToKafka) {
-      flatOutputKafka.addFlatResponseInsertionSink(
-          flatResponseInsertions, flatOutputKafka.getFlatResponseInsertionTopic(getJobLabel()));
+      // Note that we're sending both joined impression and action streams to the same topic.
+      // Execution information is cleared to sink less data to Kafka.
+      flatOutputKafkaSink.sinkJoinedImpression(
+          add(
+              joinedImpressions.map(DeliveryExecutionUtil::clearAllDeliveryExecutionDetails),
+              "clear-all-delivery-execution-details-joined-impressions"));
+      flatOutputKafkaSink.sinkAttributedAction(
+          add(
+              attributedActions.map(DeliveryExecutionUtil::clearAllDeliveryExecutionDetails),
+              "clear-all-delivery-execution-details-attributed-actions"));
     }
 
     // TBD: we could break out s3 writing to its own job now.
-    S3Path outputDir = s3.getDir(pathPrefix).build();
+    S3Path outputDir = s3.getOutputDir(pathPrefix).build();
 
-    if (writeHudiTables) {
-      hudiOutput.outputProtoToHudi(
+    if (writePaimonTables) {
+      paimonSegment.writeProtoToPaimon(
           joinedImpressions,
+          databaseName,
           "joined_impression",
-          List.of("ids.platform_id", "ids.insertion_id"),
-          List.of(
-              "DATE_FORMAT(TO_TIMESTAMP_LTZ(impression.timing.event_api_timestamp, 3), 'yyyy-MM-dd') dt",
-              "DATE_FORMAT(TO_TIMESTAMP_LTZ(impression.timing.event_api_timestamp, 3), 'HH') hr"),
+          // TODO - should this be impression_id?
+          genExtractedExtraFields(
+              "impression.timing.event_api_timestamp",
+              List.of("ids.platform_id", "ids.impression_id")),
+          List.of("platform_id", "impression_id"),
+          genPartitionFields(
+              isPartitionByHour(
+                  getLabeledDatabaseName(databaseName, getJobLabel()), "joined_impression")),
           Collections.emptyMap());
-      hudiOutput.outputProtoToHudi(
-          joinedActions,
-          "joined_action",
-          List.of("ids.platform_id", "action.action_id", "action.content_id"),
-          List.of(
-              "DATE_FORMAT(TO_TIMESTAMP_LTZ(action.timing.event_api_timestamp, 3), 'yyyy-MM-dd') dt",
-              "DATE_FORMAT(TO_TIMESTAMP_LTZ(action.timing.event_api_timestamp, 3), 'HH') hr"),
+      // TODO - does single_cart_content need to be included in the primary key?
+      paimonSegment.writeProtoToPaimon(
+          attributedActions,
+          databaseName,
+          "attributed_action",
+          genExtractedExtraFields(
+              "action.timing.event_api_timestamp",
+              List.of(
+                  "action.platform_id",
+                  "action.action_id",
+                  "attribution.model_id",
+                  "touchpoint.joined_impression.ids.insertion_id")),
+          List.of("platform_id", "action_id", "model_id", "insertion_id"),
+          genPartitionFields(
+              isPartitionByHour(
+                  getLabeledDatabaseName(databaseName, getJobLabel()), "attributed_action")),
           Collections.emptyMap());
-      hudiOutput.outputProtoToHudi(
+      paimonSegment.writeProtoToPaimon(
           flatResponseInsertions,
+          databaseName,
           "flat_response_insertion",
-          List.of("ids.platform_id", "ids.insertion_id"),
-          List.of(
-              "DATE_FORMAT(TO_TIMESTAMP_LTZ(request.timing.event_api_timestamp, 3), 'yyyy-MM-dd') dt",
-              "DATE_FORMAT(TO_TIMESTAMP_LTZ(request.timing.event_api_timestamp, 3), 'HH') hr"),
+          genExtractedExtraFields(
+              "request.timing.event_api_timestamp", List.of("ids.platform_id", "ids.insertion_id")),
+          List.of("platform_id", "insertion_id"),
+          genPartitionFields(
+              isPartitionByHour(
+                  getLabeledDatabaseName(databaseName, getJobLabel()), "flat_response_insertion")),
           Collections.emptyMap());
     } else {
       addSinkTransformations(
@@ -1235,36 +1260,48 @@ public class FlatOutputJob extends BaseFlinkJob {
               outputDir.toBuilder().addSubDir("joined_impression")));
       addSinkTransformations(
           s3FileOutput.sink(
-              joinedActions,
-              joinedEvent -> joinedEvent.getAction().getTiming(),
-              outputDir.toBuilder().addSubDir("joined_action")));
+              attributedActions,
+              attributedAction -> attributedAction.getAction().getTiming(),
+              outputDir.toBuilder().addSubDir("attributed_action")));
       addSinkTransformations(
           s3FileOutput.sink(
               flatResponseInsertions,
               joinedEvent -> joinedEvent.getRequest().getTiming(),
               outputDir.toBuilder().addSubDir("flat_response_insertion")));
+
+      // In Paimon, we'll use the main flat_response_insertion table and remove this side table.
+      DataStream<FlatResponseInsertion> flatActionedResponseInsertions =
+          add(
+              flatResponseInsertions.filter(i -> i.getAttributedActionCount() > 0),
+              "filter-flat-actioned-response-insertion");
+      addSinkTransformations(
+          s3FileOutput.sink(
+              flatActionedResponseInsertions,
+              joinedEvent -> joinedEvent.getRequest().getTiming(),
+              outputDir.toBuilder().addSubDir("flat_actioned_response_insertion")));
     }
   }
 
-  private void outputDroppedMergeDetailsEvents(
-      String name, DataStream<DroppedMergeDetailsEvent> droppedStream) {
-    SingleOutputStreamOperator<DroppedMergeDetailsEvent> droppedEvents =
-        add(droppedStream.map(UserInfoUtil::clearUserId), "clear-user-id-dropped-" + name);
-    outputDroppedEvents(
-        name, event -> event.getTinyEvent().getLogTimestamp(), "log_timestamp", droppedEvents);
+  private <T extends GeneratedMessageV3> void outputDroppedMergeDetailsEvents(
+      String name,
+      SerializableToLongFunction<T> timestampGetter,
+      String timestampExp,
+      DataStream<T> droppedStream) {
+    outputDroppedEvents(name, timestampGetter::applyAsLong, timestampExp, droppedStream);
   }
 
-  private void outputLateEvents(String name, DataStream<TinyEvent> lateStream) {
-    if (writeHudiTables) {
-      outputSideRecordsToHudi(
+  private <T extends GeneratedMessageV3> void outputLateEvents(
+      String name, SerializableToLongFunction<T> timestampGetter, DataStream<T> lateStream) {
+    if (writePaimonTables) {
+      outputSideRecordsToPaimon(
           lateStream,
           "late_" + name,
-          null,
-          List.of(
-              "DATE_FORMAT(TO_TIMESTAMP_LTZ(log_timestamp, 3), 'yyyy-MM-dd') dt",
-              "DATE_FORMAT(TO_TIMESTAMP_LTZ(log_timestamp, 3), 'HH') hr"));
+          genExtractedExtraFields("flink_event_timestamp"),
+          Collections.emptyList(),
+          genPartitionFields(false));
     } else {
-      outputSideRecords(ImmutableList.of("late_" + name), TinyEvent::getLogTimestamp, lateStream);
+      outputSideRecordsToS3(
+          ImmutableList.of("late_" + name), timestampGetter::applyAsLong, lateStream);
     }
   }
 
@@ -1273,37 +1310,77 @@ public class FlatOutputJob extends BaseFlinkJob {
       SerializableToLongFunction<T> timestampGetter,
       String timestampExp,
       DataStream<T> droppedStream) {
-    if (writeHudiTables) {
-      outputSideRecordsToHudi(
+    if (writePaimonTables) {
+      outputSideRecordsToPaimon(
           droppedStream,
           "dropped_" + name,
-          null,
-          List.of(
-              "DATE_FORMAT(TO_TIMESTAMP_LTZ(" + timestampExp + ", 3), 'yyyy-MM-dd') dt",
-              "DATE_FORMAT(TO_TIMESTAMP_LTZ(" + timestampExp + ", 3), 'HH') hr"));
+          genExtractedExtraFields(timestampExp),
+          Collections.emptyList(),
+          genPartitionFields(false));
     } else {
-      outputSideRecords(ImmutableList.of("dropped_" + name), timestampGetter, droppedStream);
+      outputSideRecordsToS3(ImmutableList.of("dropped_" + name), timestampGetter, droppedStream);
     }
   }
 
-  private void outputDebugRecords(
+  private <T extends SpecificRecordBase> void outputDroppedEventsParquet(
       String name,
-      SerializableToLongFunction<TinyEvent> timestampGetter,
-      DataStream<TinyEvent> stream) {
-    if (writeHudiTables) {
-      outputSideRecordsToHudi(
+      SerializableToLongFunction<T> timestampGetter,
+      DataStream<T> droppedStream,
+      Class<T> clazz) {
+    if (writePaimonTables) {
+      paimonSegment.writeAvroToPaimon(
+          droppedStream,
+          sideDatabaseName,
+          "dropped_" + name,
+          genExtractedExtraFields("eventApiTimestamp"),
+          Collections.emptyList(),
+          genPartitionFields(false),
+          Collections.emptyMap());
+    } else {
+      addSinkTransformation(
+          s3FileOutput.outputSpecificAvroRecordParquet(
+              droppedStream,
+              clazz,
+              timestampGetter,
+              s3.getOutputDir("etl_side", "dropped_" + name).build()));
+    }
+  }
+
+  private <T extends GeneratedMessageV3> void outputRecords(
+      String name,
+      SerializableToLongFunction<T> timestampGetter,
+      String timestampExpression,
+      DataStream<T> stream) {
+    if (writePaimonTables) {
+      outputRecordsToPaimon(
+          stream,
+          name,
+          genExtractedExtraFields(timestampExpression),
+          Collections.emptyList(),
+          genPartitionFields(false));
+    } else {
+      outputRecordsToS3(ImmutableList.of(name), timestampGetter, stream);
+    }
+  }
+
+  private <T extends GeneratedMessageV3> void outputDebugRecords(
+      String name,
+      SerializableToLongFunction<T> timestampGetter,
+      String timestampExpression,
+      DataStream<T> stream) {
+    if (writePaimonTables) {
+      outputSideRecordsToPaimon(
           stream,
           "debug_" + name,
-          null,
-          List.of(
-              "DATE_FORMAT(TO_TIMESTAMP_LTZ(log_timestamp, 3), 'yyyy-MM-dd') dt",
-              "DATE_FORMAT(TO_TIMESTAMP_LTZ(log_timestamp, 3), 'HH') hr"));
+          genExtractedExtraFields(timestampExpression),
+          Collections.emptyList(),
+          genPartitionFields(false));
     } else {
-      outputSideRecords(ImmutableList.of("debug_" + name), timestampGetter, stream);
+      outputSideRecordsToS3(ImmutableList.of("debug_" + name), timestampGetter, stream);
     }
   }
 
-  private <T extends GeneratedMessageV3> void outputSideRecords(
+  private <T extends GeneratedMessageV3> void outputRecordsToS3(
       Iterable<String> subdirs,
       SerializableToLongFunction<T> timestampGetter,
       DataStream<T> stream) {
@@ -1311,13 +1388,83 @@ public class FlatOutputJob extends BaseFlinkJob {
         s3FileOutput.sink(
             timestampGetter,
             stream,
-            s3.getDir(ImmutableList.<String>builder().add("etl_side").addAll(subdirs).build())));
+            s3.getOutputDir(ImmutableList.<String>builder().add("etl").addAll(subdirs).build())));
   }
 
-  private <T extends GeneratedMessageV3> void outputSideRecordsToHudi(
-      DataStream<T> stream, String tableName, List<String> pkExps, List<String> partitionExps) {
-    hudiOutput.outputProtoToHudi(
-        stream, getEltSideDatabase(), tableName, pkExps, partitionExps, Collections.emptyMap());
+  private <T extends GeneratedMessageV3> void outputSideRecordsToS3(
+      Iterable<String> subdirs,
+      SerializableToLongFunction<T> timestampGetter,
+      DataStream<T> stream) {
+    addSinkTransformations(
+        s3FileOutput.sink(
+            timestampGetter,
+            stream,
+            s3.getOutputDir(
+                ImmutableList.<String>builder().add("etl_side").addAll(subdirs).build())));
+  }
+
+  private <T extends GeneratedMessageV3> void outputRecordsToPaimon(
+      DataStream<T> stream,
+      String tableName,
+      List<String> fieldsExtraction,
+      List<String> pkExps,
+      List<String> partitionExps) {
+    paimonSegment.writeProtoToPaimon(
+        stream,
+        databaseName,
+        tableName,
+        fieldsExtraction,
+        pkExps,
+        partitionExps,
+        Collections.emptyMap());
+  }
+
+  private <T extends GeneratedMessageV3> void outputSideRecordsToPaimon(
+      DataStream<T> stream,
+      String tableName,
+      List<String> fieldsExtraction,
+      List<String> pkExps,
+      List<String> partitionExps) {
+    paimonSegment.writeProtoToPaimon(
+        stream,
+        sideDatabaseName,
+        tableName,
+        fieldsExtraction,
+        pkExps,
+        partitionExps,
+        Collections.emptyMap());
+  }
+
+  @VisibleForTesting
+  void outputAllDeliveryLogVariants(DataStream<DeliveryLog> allDeliveryLogs) {
+    DataStream<DeliveryLog> metadataStream =
+        add(
+            allDeliveryLogs.map(
+                deliveryLog -> {
+                  DeliveryLog.Builder builder = deliveryLog.toBuilder();
+                  builder.getRequestBuilder().clearInsertion();
+                  builder.getRequestBuilder().clearInsertionMatrix();
+                  builder.getResponseBuilder().clearInsertion();
+                  builder.getExecutionBuilder().clearExecutionInsertion();
+                  UserInfoUtil.clearUserId(builder);
+                  return builder.build();
+                }),
+            "strip-all-delivery-log");
+    outputAllDeliveryLog(metadataStream, "all_delivery_log_metadata");
+
+    DataStream<Request> requestStream =
+        add(
+            allDeliveryLogs.map(
+                (deliveryLog) ->
+                    UserInfoUtil.clearUserId(deliveryLog.getRequest().toBuilder()).build()),
+            "map-to-request-and-clear-user-id-all-delivery-log-request");
+    outputAllDeliveryLogRequest(requestStream, "all_delivery_log_request");
+    DataStream<Request> requestMetadataStream =
+        add(
+            requestStream.map(
+                request -> request.toBuilder().clearInsertion().clearInsertionMatrix().build()),
+            "clear-insertion-all-delivery-log-request");
+    outputAllDeliveryLogRequest(requestMetadataStream, "all_delivery_log_request_metadata");
   }
 
   // This writes out the combined v1 (synthetic DeliveryLog formed from Request and response
@@ -1325,108 +1472,71 @@ public class FlatOutputJob extends BaseFlinkJob {
   // This function is unit tested.
   @VisibleForTesting
   void outputAllDeliveryLog(DataStream<DeliveryLog> allDeliveryLogs, String name) {
-    if (writeHudiTables) {
-      hudiOutput.outputProtoToHudi(
-          allDeliveryLogs,
-          getEltSideDatabase(),
-          "debug_" + name,
-          List.of("platform_id", "request.request_id"),
-          List.of(
-              "DATE_FORMAT(TO_TIMESTAMP_LTZ(timing.event_api_timestamp, 3), 'yyyy-MM-dd') dt",
-              "DATE_FORMAT(TO_TIMESTAMP_LTZ(timing.event_api_timestamp, 3), 'HH') hr"),
-          Collections.emptyMap());
-    } else {
-      addSinkTransformations(
-          s3FileOutput.sink(
-              allDeliveryLogs,
-              deliveryLog -> deliveryLog.getRequest().getTiming(),
-              s3.getDir("etl_side", "debug_" + name)));
-    }
+    Preconditions.checkArgument(
+        !writePaimonTables,
+        "writePaimonTables should not be enabled for the side DelvieryLog output");
+    addSinkTransformations(
+        s3FileOutput.sink(
+            allDeliveryLogs,
+            deliveryLog -> deliveryLog.getRequest().getTiming(),
+            s3.getOutputDir("etl_side", "debug_" + name)));
   }
 
   // TODO - refactor these methods after PR/929 is merged.
   // Writes debug Request files out to S3 Avro files.
   @VisibleForTesting
   void outputAllDeliveryLogRequest(DataStream<Request> requests, String name) {
-    if (writeHudiTables) {
-      hudiOutput.outputProtoToHudi(
-          requests,
-          getEltSideDatabase(),
-          "debug_" + name,
-          List.of("platform_id", "request_id"),
-          List.of(
-              "DATE_FORMAT(TO_TIMESTAMP_LTZ(timing.event_api_timestamp, 3), 'yyyy-MM-dd') dt",
-              "DATE_FORMAT(TO_TIMESTAMP_LTZ(timing.event_api_timestamp, 3), 'HH') hr"),
-          Collections.emptyMap());
-    } else {
-      addSinkTransformations(
-          s3FileOutput.sink(
-              requests, request -> request.getTiming(), s3.getDir("etl_side", "debug_" + name)));
-    }
+    Preconditions.checkArgument(
+        !writePaimonTables,
+        "writePaimonTables should not be enabled for the side DelvieryLog output");
+    addSinkTransformations(
+        s3FileOutput.sink(
+            requests,
+            request -> request.getTiming(),
+            s3.getOutputDir("etl_side", "debug_" + name)));
   }
 
   @VisibleForTesting
-  void outputPartialResponseInsertion(DataStream<TinyEvent> partialResponseInsertion) {
-    if (writeHudiTables) {
-      hudiOutput.outputProtoToHudi(
+  void outputPartialResponseInsertion(DataStream<TinyInsertion> partialResponseInsertion) {
+    if (writePaimonTables) {
+      outputSideRecordsToPaimon(
           partialResponseInsertion,
-          getEltSideDatabase(),
           "debug_partial_response_insertion",
-          null,
-          List.of(
-              "DATE_FORMAT(TO_TIMESTAMP_LTZ(log_timestamp, 3), 'yyyy-MM-dd') dt",
-              "DATE_FORMAT(TO_TIMESTAMP_LTZ(log_timestamp, 3), 'HH') hr"),
-          Collections.emptyMap());
+          genExtractedExtraFields("common.event_api_timestamp"),
+          Collections.emptyList(),
+          genPartitionFields(false));
     } else {
       addSinkTransformations(
           s3FileOutput.sink(
-              flat -> flat.getLogTimestamp(),
+              tinyInsertion -> tinyInsertion.getCommon().getEventApiTimestamp(),
               partialResponseInsertion,
-              s3.getDir("etl_side", "debug_partial_response_insertion")));
-    }
-  }
-
-  private void outputValidationError(DataStream<ValidationError> errorStream) {
-    if (writeHudiTables) {
-      hudiOutput.outputAvroToHudi(
-          errorStream,
-          getEltSideDatabase(),
-          "validation_error",
-          null,
-          List.of(
-              "DATE_FORMAT(TO_TIMESTAMP_LTZ(timing.eventApiTimestamp, 3), 'yyyy-MM-dd') dt",
-              "DATE_FORMAT(TO_TIMESTAMP_LTZ(timing.eventApiTimestamp, 3), 'HH') hr"),
-          Collections.emptyMap());
-    } else {
-      addSinkTransformation(
-          s3FileOutput.outputSpecificAvroRecordParquet(
-              errorStream,
-              ValidationError.class,
-              error -> error.getTiming().getEventApiTimestamp(),
-              // TODO - we'll probably want this exposed externally.  Might make sense to have in
-              // etl.
-              s3.getDir("etl_side", "validation_error").build()));
+              s3.getOutputDir("etl_side", "debug_partial_response_insertion")));
     }
   }
 
   private void outputMismatchError(DataStream<MismatchError> errors) {
-    if (writeHudiTables) {
-      hudiOutput.outputAvroToHudi(
+    if (writePaimonTables) {
+      paimonSegment.writeAvroToPaimon(
           errors,
-          getEltSideDatabase(),
+          sideDatabaseName,
           "mismatch_error",
-          null,
-          List.of(
-              "DATE_FORMAT(TO_TIMESTAMP_LTZ(logTimestamp, 3), 'yyyy-MM-dd') dt",
-              "DATE_FORMAT(TO_TIMESTAMP_LTZ(logTimestamp, 3), 'HH') hr"),
+          genExtractedExtraFields("eventApiTimestamp"),
+          Collections.emptyList(),
+          Collections.emptyList(),
           Collections.emptyMap());
     } else {
       addSinkTransformation(
           s3FileOutput.outputSpecificAvroRecordParquet(
               errors,
               MismatchError.class,
-              error -> error.getLogTimestamp(),
-              s3.getDir("etl_side", "mismatch_error").build()));
+              MismatchError::getEventApiTimestamp,
+              s3.getOutputDir("etl_side", "mismatch_error").build()));
     }
+  }
+
+  @Override
+  public void setTableEnv(StreamTableEnvironment tEnv) {
+    super.setTableEnv(tEnv);
+    paimonSegment.setStreamTableEnvironment(tEnv);
   }
 }

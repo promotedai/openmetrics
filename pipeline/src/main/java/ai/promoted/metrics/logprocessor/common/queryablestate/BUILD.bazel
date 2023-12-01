@@ -1,0 +1,48 @@
+load("@rules_java//java:defs.bzl", "java_library")
+
+java_plugin(
+    name = "autovalue_plugin",
+    processor_class = "com.google.auto.value.processor.AutoValueProcessor",
+    deps = [
+        "@maven//:com_google_auto_value_auto_value",
+    ],
+)
+
+java_library(
+    name = "autovalue",
+    exported_plugins = [":autovalue_plugin"],
+    exports = [
+        "@maven//:com_google_auto_value_auto_value",
+        "@maven//:com_google_auto_value_auto_value_annotations",
+    ],
+)
+
+java_library(
+    name = "queryablestate",
+    srcs = glob(["*.java"]),
+    visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
+    deps = [
+        ":autovalue",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/util",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/queryablestate/metrics",
+        "@maven//:com_google_guava_guava",
+        "@maven//:io_grpc_grpc_netty_shaded",
+        "@maven//:io_grpc_grpc_stub",
+        "@maven_neverlink//:org_apache_flink_flink_core",
+        "@maven_neverlink//:org_apache_flink_flink_java",
+        "@maven_neverlink//:org_apache_flink_flink_file_sink_common",
+        "@maven_neverlink//:org_apache_flink_flink_runtime",
+        "@maven_neverlink//:org_apache_flink_flink_streaming_java",
+        "@maven_neverlink//:org_apache_flink_flink_metrics_core",
+        "@maven_neverlink//:org_apache_flink_flink_statebackend_rocksdb",
+        "@maven_neverlink//:org_apache_flink_flink_metrics_prometheus",
+        "@maven//:com_google_auto_value_auto_value",
+        "@maven//:com_google_auto_value_auto_value_annotations",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions/base",
+        # Manually replace the frocksdbjni version to support mac m1 chip https://github.com/apache/flink/pull/21747
+        "@maven_neverlink//:com_ververica_frocksdbjni_6_20_3_ververica_2_0",
+        "@maven_neverlink//:org_apache_logging_log4j_log4j_api",
+        "@com_github_promotedai_schema_internal_git//proto/queryablestate:flink_queryable_state_java_proto",
+        "@com_github_promotedai_schema_internal_git//proto/queryablestate:flink_queryable_state_java_grpc",
+    ],
+)

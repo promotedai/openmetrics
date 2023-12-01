@@ -1,0 +1,9 @@
+load("@rules_java//java:defs.bzl", "java_library")
+load("@io_bazel_rules_avro//avro:avro.bzl", "avro_idl_java_library")
+
+avro_idl_java_library(
+    name = "idl",
+    srcs = glob(["*.avdl"]),
+    strings = True,
+    visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
+)

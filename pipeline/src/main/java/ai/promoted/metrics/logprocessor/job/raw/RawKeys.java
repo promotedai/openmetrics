@@ -12,14 +12,14 @@ import org.apache.flink.api.java.tuple.Tuple4;
 /** KeySelectors util for the Raw Job. */
 interface RawKeys {
   // [platformId, dateHourUtcEpoch, userId, logUserId]
-  static final KeySelector<LogUserUser, Tuple4<Long, Long, String, String>> logUserUserKeySelector =
+  KeySelector<LogUserUser, Tuple4<Long, Long, String, String>> logUserUserKeySelector =
       new KeySelector<LogUserUser, Tuple4<Long, Long, String, String>>() {
         @Override
         public Tuple4<Long, Long, String, String> getKey(LogUserUser logUserUser) {
           return Tuple4.of(
               logUserUser.getPlatformId(),
               // Round to hour.
-              Instant.ofEpochMilli(logUserUser.getEventApiTimestamp())
+              Instant.ofEpochMilli(logUserUser.getEventTimeMillis())
                   .truncatedTo(ChronoUnit.HOURS)
                   .toEpochMilli(),
               logUserUser.getUserId(),
@@ -28,7 +28,7 @@ interface RawKeys {
       };
 
   // [platformId, requestId]
-  static final KeySelector<DeliveryLog, Tuple2<Long, String>> deliveryLogKeySelector =
+  KeySelector<DeliveryLog, Tuple2<Long, String>> deliveryLogKeySelector =
       new KeySelector<DeliveryLog, Tuple2<Long, String>>() {
         @Override
         public Tuple2<Long, String> getKey(DeliveryLog deliveryLog) {
@@ -37,7 +37,7 @@ interface RawKeys {
       };
 
   // [platformId, membershipId]
-  static final KeySelector<CohortMembership, Tuple2<Long, String>> cohortMembershipKeySelector =
+  KeySelector<CohortMembership, Tuple2<Long, String>> cohortMembershipKeySelector =
       new KeySelector<CohortMembership, Tuple2<Long, String>>() {
         @Override
         public Tuple2<Long, String> getKey(CohortMembership cohortMembership) {

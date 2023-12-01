@@ -18,6 +18,7 @@
 
 package org.apache.flink.formats.protobuf.deserialize;
 
+import com.google.protobuf.Descriptors;
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 import org.apache.flink.formats.protobuf.PbCodegenException;
@@ -39,11 +40,14 @@ public class PromotedPbCodegenRowDeserializer implements PbCodegenDeserializer {
   private final RowType rowType;
   private final PbFormatContext formatContext;
 
+  private final Descriptors.FileDescriptor.Syntax syntax;
+
   public PromotedPbCodegenRowDeserializer(
       Descriptor descriptor, RowType rowType, PbFormatContext formatContext) {
     this.rowType = rowType;
     this.descriptor = descriptor;
     this.formatContext = formatContext;
+    this.syntax = descriptor.getFile().getSyntax();
   }
 
   @Override
@@ -57,7 +61,7 @@ public class PromotedPbCodegenRowDeserializer implements PbCodegenDeserializer {
     String flinkRowDataVar = "rowData" + uid;
 
     int fieldSize = rowType.getFieldNames().size();
-    String pbMessageTypeStr;
+    String pbMessageTypeStr = null;
     String pbMessageVar;
     // ============== Xingcan: Use entry to iterate map ====================
     if (descriptor.getOptions().hasMapEntry()) {
@@ -83,12 +87,14 @@ public class PromotedPbCodegenRowDeserializer implements PbCodegenDeserializer {
       PbCodegenDeserializer codegen =
           PromotedPbCodegenDeserializeFactory.getPbCodegenDes(elementFd, subType, formatContext);
       appender.appendLine("Object " + flinkRowEleVar + " = null");
-      if (!formatContext.getPbFormatConfig().isReadDefaultValues()) {
-        // only works in syntax=proto2 and readDefaultValues=false
-        // readDefaultValues must be true in pb3 mode
+      if (!formatContext.getPbFormatConfig().isReadDefaultValues() && null != pbMessageTypeStr) {
         String isMessageElementNonEmptyCode =
             isMessageElementNonEmptyCode(
-                pbMessageVar, strongCamelFieldName, PbFormatUtils.isRepeatedType(subType));
+                pbMessageTypeStr,
+                pbMessageVar,
+                strongCamelFieldName,
+                PbFormatUtils.isRepeatedType(subType),
+                fieldName);
         appender.begin("if(" + isMessageElementNonEmptyCode + "){");
       }
       String pbGetMessageElementCode =
@@ -97,7 +103,7 @@ public class PromotedPbCodegenRowDeserializer implements PbCodegenDeserializer {
       String code =
           codegen.codegen(flinkRowEleVar, pbGetMessageElementCode, appender.currentIndent());
       appender.appendSegment(code);
-      if (!formatContext.getPbFormatConfig().isReadDefaultValues()) {
+      if (!formatContext.getPbFormatConfig().isReadDefaultValues() && null != pbMessageTypeStr) {
         appender.end("}");
       }
       appender.appendLine(flinkRowDataVar + ".setField(" + index + ", " + flinkRowEleVar + ")");
@@ -121,12 +127,26 @@ public class PromotedPbCodegenRowDeserializer implements PbCodegenDeserializer {
   }
 
   private String isMessageElementNonEmptyCode(
-      String message, String fieldName, boolean isListOrMap) {
+      String pbMessageTypeStr,
+      String message,
+      String fieldName,
+      boolean isListOrMap,
+      String protoFieldName) {
     if (isListOrMap) {
       return message + ".get" + fieldName + "Count() > 0";
     } else {
       // proto syntax class do not have hasName() interface
-      return message + ".has" + fieldName + "()";
+      switch (syntax) {
+        case PROTO3:
+          return String.format(
+              "%s.hasField(%s.getDescriptor().findFieldByName(\"%s\"))",
+              message, pbMessageTypeStr, protoFieldName);
+        case PROTO2:
+          // proto syntax class do not have hasName() interface
+          return message + ".has" + fieldName + "()";
+        default:
+          throw new IllegalArgumentException("Unknown proto syntax " + syntax);
+      }
     }
   }
 }

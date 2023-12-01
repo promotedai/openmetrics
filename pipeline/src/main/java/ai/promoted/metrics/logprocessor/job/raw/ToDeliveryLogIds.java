@@ -21,7 +21,7 @@ class ToDeliveryLogIds implements MapFunction<DeliveryLog, DeliveryLogIds> {
     return DeliveryLogIds.newBuilder()
         .setPlatformId(deliveryLog.getPlatformId())
         .setEventApiTimestamp(request.getTiming().getEventApiTimestamp())
-        .setLogUserId(request.getUserInfo().getLogUserId())
+        .setAnonUserId(request.getUserInfo().getAnonUserId())
         .setViewId(request.getViewId())
         .setRequestId(request.getRequestId())
         .setClientRequestId(request.getClientRequestId())

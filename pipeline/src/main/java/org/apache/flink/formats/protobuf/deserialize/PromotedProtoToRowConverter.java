@@ -1,4 +1,3 @@
-package org.apache.flink.formats.protobuf.deserialize;
 /*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -17,11 +16,12 @@ package org.apache.flink.formats.protobuf.deserialize;
  * limitations under the License.
  */
 
+package org.apache.flink.formats.protobuf.deserialize;
+
 // Port from Flink repository
 
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Descriptors;
-import com.google.protobuf.Descriptors.FileDescriptor.Syntax;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -70,15 +70,16 @@ public class PromotedProtoToRowConverter<T> {
               true,
               Thread.currentThread().getContextClassLoader());
       String fullMessageClassName = PbFormatUtils.getFullJavaName(descriptor);
-      if (descriptor.getFile().getSyntax() == Syntax.PROTO3) {
-        // pb3 always read default values
-        formatConfig =
-            new PbFormatConfig(
-                formatConfig.getMessageClassName(),
-                formatConfig.isIgnoreParseErrors(),
-                true,
-                formatConfig.getWriteNullStringLiterals());
-      }
+      // TODO Xingcan: should we always read default values for PROTO3?
+      // if (descriptor.getFile().getSyntax() == Syntax.PROTO3) {
+      //   // pb3 always read default values
+      //   formatConfig =
+      //       new PbFormatConfig(
+      //           formatConfig.getMessageClassName(),
+      //           formatConfig.isIgnoreParseErrors(),
+      //           true,
+      //           formatConfig.getWriteNullStringLiterals());
+      // }
       PbCodegenAppender codegenAppender = new PbCodegenAppender();
       PbFormatContext pbFormatContext = new PbFormatContext(formatConfig);
       String uuid = UUID.randomUUID().toString().replaceAll("\\-", "");

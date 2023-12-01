@@ -5,16 +5,14 @@ java_library(
     srcs = glob(["*.java"]),
     visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
     deps = [
-        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions",
+        # Avoid Flink dependencies in this package.
+        # If you need Flink deps, put it in the flink subpackage.
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions/base",
         "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/util",
         "@com_github_promotedai_schema_internal_git//proto/event:event_java_proto",
         "@com_github_promotedai_schema_internal_git//proto/promotion:promotion_java_proto",
         "@com_google_protobuf//:protobuf_java",
         "@maven//:org_apache_avro_avro",
-        "@maven_neverlink//:org_apache_flink_flink_core",
-        "@maven//:org_apache_flink_flink_connector_kafka",
-        "@maven_neverlink//:org_apache_flink_flink_java",
-        "@maven_neverlink//:org_apache_flink_flink_streaming_java",
         "@maven//:org_apache_kafka_kafka_clients",
         "@maven//:com_google_guava_guava",
     ],

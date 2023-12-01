@@ -1,7 +1,7 @@
 CREATE TEMPORARY VIEW `hourly_content_metrics_view` AS
 SELECT
-    DATE_FORMAT(TUMBLE_ROWTIME(rowtime, INTERVAL '1' HOUR), 'yyyy-MM-dd') AS `dt`,
-    DATE_FORMAT(TUMBLE_ROWTIME(rowtime, INTERVAL '1' HOUR), 'HH') AS `hour`,
+    DATE_FORMAT(window_start, 'yyyy-MM-dd') AS `dt`,
+    DATE_FORMAT(window_start, 'HH') AS `hour`,
     platform_id,
     content_id,
     SUM(view_count) AS view_count,
@@ -13,8 +13,9 @@ SELECT
     SUM(checkout_count) AS checkout_count,
     SUM(purchase_count) AS purchase_count,
     SUM(gmv_usd_micros) AS gmv_usd_micros
-FROM content_event
+FROM TABLE(TUMBLE(TABLE content_event, DESCRIPTOR(rowtime), INTERVAL '1' HOUR))
 GROUP BY
     platform_id,
     content_id,
-    TUMBLE(rowtime, INTERVAL '1' HOUR)
+    window_start,
+    window_end

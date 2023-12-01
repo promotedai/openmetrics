@@ -5,13 +5,11 @@ metadata:
   name: log-generator-config
 data:
   log4j.properties: |+
-    status = error
-    name = Log4j2PropertiesConfig
-    appenders = console
-    appender.console.type = Console
-    appender.console.name = LogToConsole
+    rootLogger.level = DEBUG
+    rootLogger.appenderRef.console.ref = ConsoleAppender
+
+    # Log all infos to the console
+    appender.console.name = ConsoleAppender
+    appender.console.type = CONSOLE
     appender.console.layout.type = PatternLayout
-    appender.console.layout.pattern = %d [%t] %-5p %c - %m%n
-    rootLogger.level = info
-    rootLogger.appenderRefs = stdout
-    rootLogger.appenderRef.stdout.ref = LogToConsole
+    appender.console.layout.pattern = %d{yyyy-MM-dd HH:mm:ss} [%t] %-5p %-60c %x - %m%n

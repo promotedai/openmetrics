@@ -21,29 +21,26 @@ import com.google.protobuf.GeneratedMessageV3;
 import com.google.protobuf.InvalidProtocolBufferException;
 import java.io.IOException;
 import java.util.Base64;
-import org.apache.flink.api.common.serialization.DeserializationSchema;
-import org.apache.flink.api.common.serialization.SerializationSchema;
-import org.apache.flink.api.common.typeinfo.TypeInformation;
-import org.apache.flink.api.java.typeutils.TypeExtractor;
 
 // TODO - see if we can do this serialization automatically.
 
 // TODO - rename to SerDeSchema
 
-/** A Kafka {@link DeserializationSchema} to deserialize Protocol Buffers. */
-public class ProtoDeserializationSchema<T extends GeneratedMessageV3>
-    implements DeserializationSchema<T>, SerializationSchema<T> {
+/** A Kafka deserialization schema to deserialize Protocol Buffers. No Flink deps. */
+public class ProtoDeserializationSchema<T extends GeneratedMessageV3> {
   private static final long serialVersionUID = 2L;
 
-  private Class<T> clazz;
-  private ProtoDeserializer<T> deserializer;
+  private final ProtoDeserializer<T> deserializer;
 
-  public ProtoDeserializationSchema(Class<T> clazz, ProtoDeserializer<T> deserializer) {
-    this.clazz = clazz;
+  // Flink complains now that this class is not serializable.
+  public ProtoDeserializationSchema() {
+    deserializer = null;
+  }
+
+  public ProtoDeserializationSchema(ProtoDeserializer<T> deserializer) {
     this.deserializer = deserializer;
   }
 
-  @Override
   public T deserialize(byte[] message) throws IOException {
     try {
       return deserializer.deserialize(message);
@@ -53,18 +50,7 @@ public class ProtoDeserializationSchema<T extends GeneratedMessageV3>
     }
   }
 
-  @Override
   public byte[] serialize(T message) {
     return message.toByteArray();
-  }
-
-  @Override
-  public boolean isEndOfStream(T nextElement) {
-    return false;
-  }
-
-  @Override
-  public TypeInformation<T> getProducedType() {
-    return TypeExtractor.getForClass(clazz);
   }
 }

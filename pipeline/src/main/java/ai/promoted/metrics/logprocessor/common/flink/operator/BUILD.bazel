@@ -12,7 +12,6 @@ java_library(
         "@maven_neverlink//:org_apache_flink_flink_core",
         "@maven_neverlink//:org_apache_flink_flink_java",
         "@maven_neverlink//:org_apache_flink_flink_streaming_java",
-        "@maven//:org_apache_logging_log4j_log4j_api",
-        "@maven//:org_apache_logging_log4j_log4j_core",
+        "@maven_neverlink//:org_apache_logging_log4j_log4j_api",
     ],
 )

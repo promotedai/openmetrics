@@ -31,7 +31,7 @@ import org.apache.flink.table.types.logical.LogicalType;
  * Deserializer to convert proto array type object to flink array type data.
  *
  * <p>Copied from
- * https://github.com/apache/flink/blob/cc94a1d1855af3523ed117e6cbab8999b231c822/flink-formats/flink-protobuf/src/main/java/org/apache/flink/formats/protobuf/serialize/PbCodegenArraySerializer.java
+ * https://github.com/apache/flink/blob/cc94a1d1855af3523ed117e6cbab8999b231c822/flink-formats/flink-protobuf/src/main/java/org/apache/flink/formats/protobuf/serialize/PbCodegenArrayDeserializer.java
  */
 public class PromotedPbCodegenArrayDeserializer implements PbCodegenDeserializer {
   private final Descriptors.FieldDescriptor fd;

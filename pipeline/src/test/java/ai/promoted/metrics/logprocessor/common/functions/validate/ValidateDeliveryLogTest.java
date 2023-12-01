@@ -25,22 +25,22 @@ public class ValidateDeliveryLogTest extends BaseValidateTest<DeliveryLog> {
   @BeforeEach
   public void setUp() {
     super.setUp();
-    validate = new ValidateDeliveryLog();
+    validate = new ValidateDeliveryLog(true);
   }
 
   @Test
   public void valid() throws Exception {
     DeliveryLog deliveryLog =
         DeliveryLog.newBuilder()
-            .setRequest(Request.newBuilder().setUserInfo(UserInfo.newBuilder().setLogUserId("123")))
+            .setRequest(
+                Request.newBuilder().setUserInfo(UserInfo.newBuilder().setAnonUserId("123")))
             .build();
     validate.processElement(deliveryLog, mockContext, mockOut);
-    verify(mockContext, never()).output(eq(ValidateView.INVALID_TAG), any(ValidationError.class));
-    verify(mockOut).collect(deliveryLog);
+    verifyValid(deliveryLog);
   }
 
   @Test
-  public void missingLogUserId() throws Exception {
+  public void missingAnonUserId() throws Exception {
     DeliveryLog deliveryLog =
         DeliveryLog.newBuilder()
             .setPlatformId(PLATFORM_ID)
@@ -56,17 +56,35 @@ public class ValidateDeliveryLogTest extends BaseValidateTest<DeliveryLog> {
     // Future validation tests do not need assert the full message.  It can call createError.
     verify(mockContext)
         .output(
-            ValidateUser.INVALID_TAG,
+            ValidateDeliveryLog.VALIDATION_ERROR_TAG,
             ValidationError.newBuilder()
                 .setRecordType(RecordType.DELIVERY_LOG)
                 .setErrorType(ErrorType.MISSING_FIELD)
-                .setField(Field.LOG_USER_ID)
+                .setField(Field.ANON_USER_ID)
                 .setPlatformId(PLATFORM_ID)
                 .setViewId(VIEW_ID)
                 .setRequestId(REQUEST_ID)
                 .setTiming(getAvroTiming())
                 .build());
+    verify(mockContext).output(validate.getInvalidRecordTag(), deliveryLog);
     verify(mockOut, never()).collect(deliveryLog);
+  }
+
+  @Test
+  public void missingAnonUserId_optional() throws Exception {
+    validate = new ValidateDeliveryLog(false);
+    DeliveryLog deliveryLog =
+        DeliveryLog.newBuilder()
+            .setPlatformId(PLATFORM_ID)
+            .setRequest(
+                Request.newBuilder()
+                    .setPlatformId(PLATFORM_ID)
+                    .setTiming(getProtoTiming())
+                    .setViewId(VIEW_ID)
+                    .setRequestId(REQUEST_ID))
+            .build();
+    validate.processElement(deliveryLog, mockContext, mockOut);
+    verifyValid(deliveryLog);
   }
 
   @Test
@@ -79,7 +97,7 @@ public class ValidateDeliveryLogTest extends BaseValidateTest<DeliveryLog> {
                     .setViewId(VIEW_ID)
                     .setRequestId(REQUEST_ID)
                     .setTiming(getProtoTiming())
-                    .setUserInfo(UserInfo.newBuilder().setLogUserId(LOG_USER_ID))
+                    .setUserInfo(UserInfo.newBuilder().setAnonUserId(ANON_USER_ID))
                     .addAllInsertionMatrixHeaders(Arrays.asList("1", "2"))
                     .setInsertionMatrix(
                         ListValue.newBuilder()
@@ -97,7 +115,7 @@ public class ValidateDeliveryLogTest extends BaseValidateTest<DeliveryLog> {
 
     verify(mockContext)
         .output(
-            ValidateUser.INVALID_TAG,
+            ValidateDeliveryLog.VALIDATION_ERROR_TAG,
             ValidationError.newBuilder()
                 .setRecordType(RecordType.DELIVERY_LOG)
                 .setErrorType(ErrorType.MISMATCHED_MATRIX_HEADER_LENGTH)
@@ -106,8 +124,16 @@ public class ValidateDeliveryLogTest extends BaseValidateTest<DeliveryLog> {
                 .setViewId(VIEW_ID)
                 .setRequestId(REQUEST_ID)
                 .setTiming(getAvroTiming())
-                .setLogUserId(LOG_USER_ID)
+                .setAnonUserId(ANON_USER_ID)
                 .build());
+    verify(mockContext).output(validate.getInvalidRecordTag(), deliveryLog);
     verify(mockOut, never()).collect(deliveryLog);
+  }
+
+  private void verifyValid(DeliveryLog deliveryLog) {
+    verify(mockContext, never())
+        .output(eq(ValidateDeliveryLog.VALIDATION_ERROR_TAG), any(ValidationError.class));
+    verify(mockContext, never()).output(eq(validate.getInvalidRecordTag()), any(DeliveryLog.class));
+    verify(mockOut).collect(deliveryLog);
   }
 }

@@ -182,6 +182,12 @@ public class FeatureIdTest {
                 CountType.LOG_USER_COUNT, AggMetric.COUNT_REMOVE_FROM_LIST, CountWindow.HOUR),
             FeatureId.featureId(
                 CountType.LOG_USER_COUNT, AggMetric.COUNT_REMOVE_FROM_LIST, CountWindow.DAY),
+            FeatureId.featureId(CountType.LOG_USER_COUNT, AggMetric.COUNT_FOLLOW, CountWindow.HOUR),
+            FeatureId.featureId(CountType.LOG_USER_COUNT, AggMetric.COUNT_FOLLOW, CountWindow.DAY),
+            FeatureId.featureId(
+                CountType.LOG_USER_COUNT, AggMetric.COUNT_UNFOLLOW, CountWindow.HOUR),
+            FeatureId.featureId(
+                CountType.LOG_USER_COUNT, AggMetric.COUNT_UNFOLLOW, CountWindow.DAY),
             FeatureId.featureId(
                 CountType.LOG_USER_COUNT, AggMetric.SUM_PURCHASE_GMV, CountWindow.HOUR),
             FeatureId.featureId(
@@ -272,6 +278,14 @@ public class FeatureIdTest {
                 CountType.USER_ITEM_COUNT, AggMetric.COUNT_REMOVE_FROM_LIST, CountWindow.DAY_90),
             FeatureId.featureId(
                 CountType.USER_ITEM_HOURS_AGO, AggMetric.COUNT_REMOVE_FROM_LIST, CountWindow.NONE),
+            FeatureId.featureId(
+                CountType.USER_ITEM_COUNT, AggMetric.COUNT_FOLLOW, CountWindow.DAY_90),
+            FeatureId.featureId(
+                CountType.USER_ITEM_HOURS_AGO, AggMetric.COUNT_FOLLOW, CountWindow.NONE),
+            FeatureId.featureId(
+                CountType.USER_ITEM_COUNT, AggMetric.COUNT_UNFOLLOW, CountWindow.DAY_90),
+            FeatureId.featureId(
+                CountType.USER_ITEM_HOURS_AGO, AggMetric.COUNT_UNFOLLOW, CountWindow.NONE),
             FeatureId.featureId(
                 CountType.USER_ITEM_COUNT, AggMetric.SUM_PURCHASE_GMV, CountWindow.DAY_90),
             FeatureId.featureId(

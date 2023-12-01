@@ -9,19 +9,23 @@ http_archive(
 )
 
 http_archive(
-    name = "io_bazel_rules_go",
-    sha256 = "8e968b5fcea1d2d64071872b12737bbb5514524ee5f0a4f54f5920266c261acb",
-    urls = [
-        "https://mirror.bazel.build/github.com/bazelbuild/rules_go/releases/download/v0.28.0/rules_go-v0.28.0.zip",
-        "https://github.com/bazelbuild/rules_go/releases/download/v0.28.0/rules_go-v0.28.0.zip",
-    ],
-)
-
-http_archive(
     name = "com_google_protobuf",
     sha256 = "b10bf4e2d1a7586f54e64a5d9e7837e5188fc75ae69e36f215eb01def4f9721b",
     strip_prefix = "protobuf-3.15.3",
     urls = ["https://github.com/protocolbuffers/protobuf/archive/v3.15.3.tar.gz"],
+)
+
+load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
+
+# io_bazel_rules_docker needs Go.  An easy way to install Go is to install Gazelle.
+# Start Go section.
+http_archive(
+    name = "io_bazel_rules_go",
+    sha256 = "56d8c5a5c91e1af73eca71a6fab2ced959b67c86d12ba37feedb0a2dfea441a6",
+    urls = [
+        "https://mirror.bazel.build/github.com/bazelbuild/rules_go/releases/download/v0.37.0/rules_go-v0.37.0.zip",
+        "https://github.com/bazelbuild/rules_go/releases/download/v0.37.0/rules_go-v0.37.0.zip",
+    ],
 )
 
 http_archive(
@@ -33,16 +37,37 @@ http_archive(
     ],
 )
 
-load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
 load("@io_bazel_rules_go//go:deps.bzl", "go_register_toolchains", "go_rules_dependencies")
 
 go_rules_dependencies()
 
-go_register_toolchains(version = "1.17.3")
+go_register_toolchains(version = "1.19.3")
 
-# load("@rules_proto//proto:repositories.bzl", "rules_proto_dependencies", "rules_proto_toolchains")
-# rules_proto_dependencies()
-# rules_proto_toolchains()
+load("@bazel_gazelle//:deps.bzl", "gazelle_dependencies", "go_repository")
+
+gazelle_dependencies()
+
+go_repository(
+    name = "com_github_google_go_containerregistry",
+    importpath = "github.com/google/go-containerregistry",
+    sha256 = "cadb09cb5bcbe00688c73d716d1c9e774d6e4959abec4c425a1b995faf33e964",
+    strip_prefix = "google-go-containerregistry-8a28419",
+    type = "tar.gz",
+    urls = ["https://api.github.com/repos/google/go-containerregistry/tarball/8a2841911ffee4f6892ca0083e89752fb46c48dd"],  # v0.1.4
+)
+# End Go section.
+
+http_archive(
+    name = "rules_java",
+    sha256 = "9b87757af5c77e9db5f7c000579309afae75cf6517da745de01ba0c6e4870951",
+    url = "https://github.com/bazelbuild/rules_java/releases/download/5.4.0/rules_java-5.4.0.tar.gz",
+)
+
+load("@rules_java//java:repositories.bzl", "rules_java_dependencies", "rules_java_toolchains")
+
+rules_java_dependencies()
+
+rules_java_toolchains()
 
 load("@com_google_protobuf//:protobuf_deps.bzl", "protobuf_deps")
 
@@ -50,9 +75,9 @@ protobuf_deps()
 
 http_archive(
     name = "rules_proto_grpc",
-    sha256 = "fa7a59e0d1527ac69be652407b457ba1cb40700752a3ee6cc2dd25d9cb28bb1a",
-    strip_prefix = "rules_proto_grpc-3.1.0",
-    urls = ["https://github.com/rules-proto-grpc/rules_proto_grpc/archive/3.1.0.tar.gz"],
+    sha256 = "507e38c8d95c7efa4f3b1c0595a8e8f139c885cb41a76cab7e20e4e67ae87731",
+    strip_prefix = "rules_proto_grpc-4.1.1",
+    urls = ["https://github.com/rules-proto-grpc/rules_proto_grpc/archive/4.1.1.tar.gz"],
 )
 
 load("@rules_proto_grpc//:repositories.bzl", "rules_proto_grpc_repos", "rules_proto_grpc_toolchains")
@@ -75,346 +100,7 @@ load("@com_github_grpc_grpc//bazel:grpc_deps.bzl", "grpc_deps")
 
 grpc_deps()
 
-load("@bazel_gazelle//:deps.bzl", "gazelle_dependencies", "go_repository")
-
-go_repository(
-    name = "in_gopkg_yaml_v2",
-    importpath = "gopkg.in/yaml.v2",
-    sum = "h1:/eiJrUcujPVeJ3xlSWaiNi3uSVmDGBK1pDHUHAnao1I=",
-    version = "v2.2.4",
-)
-
-go_repository(
-    name = "com_github_data_dog_go_sqlmock",
-    importpath = "github.com/DATA-DOG/go-sqlmock",
-    sum = "h1:ThlnYciV1iM/V0OSF/dtkqWb6xo5qITT1TJBG1MRDJM=",
-    version = "v1.4.1",
-)
-
-go_repository(
-    name = "com_github_aws_aws_lambda_go",
-    importpath = "github.com/aws/aws-lambda-go",
-    sum = "h1:T+u/g79zPKw1oJM7xYhvpq7i4Sjc0iVsXZUaqRVVSOg=",
-    version = "v1.6.0",
-)
-
-go_repository(
-    name = "com_github_go_redis_redis_v7",
-    importpath = "github.com/go-redis/redis/v7",
-    sum = "h1:AVkqXtvak6eXAvqIA+0rDlh6St/M7/vaf67NEqPhP2w=",
-    version = "v7.0.1",
-)
-
-go_repository(
-    name = "com_github_go_sql_driver_mysql",
-    importpath = "github.com/go-sql-driver/mysql",
-    sum = "h1:ozyZYNQW3x3HtqT1jira07DN2PArx2v7/mN66gGcHOs=",
-    version = "v1.5.0",
-)
-
-go_repository(
-    name = "com_github_machinebox_graphql",
-    importpath = "github.com/machinebox/graphql",
-    sum = "h1:dWKpJligYKhYKO5A2gvNhkJdQMNZeChZYyBbrZkBZfo=",
-    version = "v0.2.2",
-)
-
-go_repository(
-    name = "com_github_pkg_errors",
-    importpath = "github.com/pkg/errors",
-    sum = "h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=",
-    version = "v0.9.1",
-)
-
-go_repository(
-    name = "com_github_sirupsen_logrus",
-    importpath = "github.com/sirupsen/logrus",
-    sum = "h1:SPIRibHv4MatM3XXNO2BJeFLZwZ2LvZgfQ5+UNI2im4=",
-    version = "v1.4.2",
-)
-
-go_repository(
-    name = "com_github_stretchr_testify",
-    importpath = "github.com/stretchr/testify",
-    sum = "h1:hDPOHmpOpP40lSULcqw7IrRb/u7w6RpDC9399XyoNd0=",
-    version = "v1.6.1",
-)
-
-go_repository(
-    name = "com_github_nsf_jsondiff",
-    importpath = "github.com/nsf/jsondiff",
-    sum = "h1:NHrXEjTNQY7P0Zfx1aMrNhpgxHmow66XQtm0aQLY0AE=",
-    version = "v0.0.0-20210926074059-1e845ec5d249",
-)
-
-go_repository(
-    name = "com_github_hashicorp_go_multierror",
-    importpath = "github.com/hashicorp/go-multierror",
-    sum = "h1:H5DkEtf6CXdFp0N0Em5UCwQpXMWke8IA0+lD48awMYo=",
-    version = "v1.1.1",
-)
-
-go_repository(
-    name = "com_github_hashicorp_errwrap",
-    importpath = "github.com/hashicorp/errwrap",
-    sum = "h1:OxrOeh75EUXMY8TBjag2fzXGZ40LB6IKw45YeGUDY2I=",
-    version = "v1.1.0",
-)
-
-go_repository(
-    name = "com_github_pierrec_lz4_v4",
-    importpath = "github.com/pierrec/lz4/v4",
-    sum = "h1:+fL8AQEZtz/ijeNnpduH0bROTu0O3NZAlPjQxGn8LwE=",
-    version = "v4.1.14",
-)
-
-gazelle_dependencies()
-
-# Autogenerated rules.
-# Run the following command to update the dependencies.
-# bazel run //:gazelle -- update
-
-go_repository(
-    name = "com_github_davecgh_go_spew",
-    importpath = "github.com/davecgh/go-spew",
-    sum = "h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=",
-    version = "v1.1.1",
-)
-
-go_repository(
-    name = "com_github_fsnotify_fsnotify",
-    importpath = "github.com/fsnotify/fsnotify",
-    sum = "h1:IXs+QLmnXW2CcXuY+8Mzv/fWEsPGWxqefPtCP5CnV9I=",
-    version = "v1.4.7",
-)
-
-go_repository(
-    name = "com_github_golang_protobuf",
-    importpath = "github.com/golang/protobuf",
-    sum = "h1:+Z5KGCizgyZCbGh1KZqA0fcLLkwbsjIzS4aV2v7wJX0=",
-    version = "v1.4.2",
-)
-
-go_repository(
-    name = "com_github_hpcloud_tail",
-    importpath = "github.com/hpcloud/tail",
-    sum = "h1:nfCOvKYfkgYP8hkirhJocXT2+zOD8yUNjXaWfTlyFKI=",
-    version = "v1.0.0",
-)
-
-go_repository(
-    name = "com_github_konsorten_go_windows_terminal_sequences",
-    importpath = "github.com/konsorten/go-windows-terminal-sequences",
-    sum = "h1:mweAR1A6xJ3oS2pRaGiHgQ4OO8tzTaLawm8vnODuwDk=",
-    version = "v1.0.1",
-)
-
-go_repository(
-    name = "com_github_kr_pretty",
-    importpath = "github.com/kr/pretty",
-    sum = "h1:Fmg33tUaq4/8ym9TJN1x7sLJnHVwhP33CNkpYV/7rwI=",
-    version = "v0.2.1",
-)
-
-go_repository(
-    name = "com_github_kr_pty",
-    importpath = "github.com/kr/pty",
-    sum = "h1:VkoXIwSboBpnk99O/KFauAEILuNHv5DVFKZMBN/gUgw=",
-    version = "v1.1.1",
-)
-
-go_repository(
-    name = "com_github_kr_text",
-    importpath = "github.com/kr/text",
-    sum = "h1:45sCR5RtlFHMR4UwH9sdQ5TC8v0qDQCHnXt+kaKSTVE=",
-    version = "v0.1.0",
-)
-
-go_repository(
-    name = "com_github_onsi_ginkgo",
-    importpath = "github.com/onsi/ginkgo",
-    sum = "h1:q/mM8GF/n0shIN8SaAZ0V+jnLPzen6WIVZdiwrRlMlo=",
-    version = "v1.10.1",
-)
-
-go_repository(
-    name = "com_github_onsi_gomega",
-    importpath = "github.com/onsi/gomega",
-    sum = "h1:XPnZz8VVBHjVsy1vzJmRwIcSwiUO+JFfrv/xGiigmME=",
-    version = "v1.7.0",
-)
-
-go_repository(
-    name = "com_github_pmezard_go_difflib",
-    importpath = "github.com/pmezard/go-difflib",
-    sum = "h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=",
-    version = "v1.0.0",
-)
-
-go_repository(
-    name = "com_github_stretchr_objx",
-    importpath = "github.com/stretchr/objx",
-    sum = "h1:2vfRuCMp5sSVIDSqO8oNnWJq7mPa6KVP3iPIwFBuy8A=",
-    version = "v0.1.1",
-)
-
-go_repository(
-    name = "in_gopkg_check_v1",
-    importpath = "gopkg.in/check.v1",
-    sum = "h1:YR8cESwS4TdDjEe65xsg0ogRM/Nc3DYOhEAlW+xobZo=",
-    version = "v1.0.0-20190902080502-41f04d3bba15",
-)
-
-go_repository(
-    name = "in_gopkg_fsnotify_v1",
-    importpath = "gopkg.in/fsnotify.v1",
-    sum = "h1:xOHLXZwVvI9hhs+cLKq5+I5onOuwQLhQwiu63xxlHs4=",
-    version = "v1.4.7",
-)
-
-go_repository(
-    name = "in_gopkg_tomb_v1",
-    importpath = "gopkg.in/tomb.v1",
-    sum = "h1:uRGJdciOHaEIrze2W8Q3AKkepLTh2hOroT7a+7czfdQ=",
-    version = "v1.0.0-20141024135613-dd632973f1e7",
-)
-
-go_repository(
-    name = "org_golang_x_crypto",
-    importpath = "golang.org/x/crypto",
-    sum = "h1:rlLehGeYg6jfoyz/eDqDU1iRXLKfR42nnNh57ytKEWo=",
-    version = "v0.0.0-20190506204251-e1dfcc566284",
-)
-
-go_repository(
-    name = "org_golang_x_net",
-    importpath = "golang.org/x/net",
-    sum = "h1:l5EDrHhldLYb3ZRHDUhXF7Om7MvYXnkV9/iQNo1lX6g=",
-    version = "v0.0.0-20190923162816-aa69164e4478",
-)
-
-go_repository(
-    name = "org_golang_x_sync",
-    importpath = "golang.org/x/sync",
-    sum = "h1:wMNYb4v58l5UBM7MYRLPG6ZhfOqbKu7X5eyFl8ZhKvA=",
-    version = "v0.0.0-20180314180146-1d60e4601c6f",
-)
-
-go_repository(
-    name = "org_golang_x_sys",
-    importpath = "golang.org/x/sys",
-    sum = "h1:/XfQ9z7ib8eEJX2hdgFTZJ/ntt0swNk5oYBziWeTCvY=",
-    version = "v0.0.0-20191010194322-b09406accb47",
-)
-
-go_repository(
-    name = "org_golang_x_text",
-    importpath = "golang.org/x/text",
-    sum = "h1:tW2bmiBqwgJj/UpqtC8EpXEZVYOwU0yG4iWbprSVAcs=",
-    version = "v0.3.2",
-)
-
-go_repository(
-    name = "org_golang_x_tools",
-    importpath = "golang.org/x/tools",
-    sum = "h1:FDhOuMEY4JVRztM/gsbk+IKUQ8kj74bxZrgw87eMMVc=",
-    version = "v0.0.0-20180917221912-90fa682c2a6e",
-)
-
-go_repository(
-    name = "com_github_aws_aws_sdk_go",
-    importpath = "github.com/aws/aws-sdk-go",
-    sum = "h1:w3O/LGvLCliVFJ2fGrpaWDGbRHj1f+aipB1MMfInN24=",
-    version = "v1.29.4",
-)
-
-go_repository(
-    name = "com_github_jmespath_go_jmespath",
-    importpath = "github.com/jmespath/go-jmespath",
-    sum = "h1:pmfjZENx5imkbgOkpRUYLnmbU7UEFbjtDA2hxJ1ichM=",
-    version = "v0.0.0-20180206201540-c2b33e8439af",
-)
-
-SCHEMA_COMMIT = "954c447a02a01e6cf1a105b7c8aaf7cff8ebe893"
-
-GO_COMMON_COMMIT = "77c41b9550782a527b71383c9e1f1b557d405068"
-
-SCHEMA_aaa_COMMIT = "aa2a4f1209b9effb0e0040b477a38c4662616705"
-
-go_repository(
-    name = "com_github_promotedai_schema_internal",
-    commit = SCHEMA_COMMIT,
-    importpath = "github.com/promotedai/schema-internal",
-    remote = "ssh://git@github.com/promotedai/schema-internal",
-    vcs = "git",
-)
-
-go_repository(
-    name = "com_github_promotedai_schema_aaa",
-    commit = SCHEMA_aaa_COMMIT,
-    importpath = "github.com/promotedai/schema-aaa",
-    remote = "ssh://git@github.com/promotedai/schema-aaa",
-    vcs = "git",
-)
-
-go_repository(
-    name = "com_github_promotedai_go_common",
-    commit = GO_COMMON_COMMIT,
-    importpath = "github.com/promotedai/go-common",
-    remote = "ssh://git@github.com/promotedai/go-common",
-    vcs = "git",
-)
-
-go_repository(
-    name = "com_github_segmentio_kafka_go",
-    importpath = "github.com/segmentio/kafka-go",
-    sum = "h1:jIHLImr9J3qycgwHR+cw1x9eLLLYNntpuYPBPjsOc3A=",
-    version = "v0.4.30",
-)
-
-go_repository(
-    name = "com_github_google_subcommands",
-    importpath = "github.com/google/subcommands",
-    sum = "h1:vWQspBTo2nEqTUFita5/KeEWlUL8kQObDFbub/EN9oE=",
-    version = "v1.2.0",
-)
-
-go_repository(
-    name = "com_github_bradleyjkemp_cupaloy",
-    importpath = "github.com/bradleyjkemp/cupaloy",
-    sum = "h1:UafIjBvWQmS9i/xRg+CamMrnLTKNzo+bdmT/oH34c2Y=",
-    version = "v2.3.0+incompatible",
-)
-
-go_repository(
-    name = "com_github_linkedin_goavro_v2",
-    importpath = "github.com/linkedin/goavro/v2",
-    sum = "h1:Vd++Rb/RKcmNJjM0HP/JJFMEWa21eUBVKPYlKehOGrM=",
-    version = "v2.9.7",
-)
-
-go_repository(
-    name = "com_github_golang_snappy",
-    importpath = "github.com/golang/snappy",
-    sum = "h1:Qgr9rKW7uDUkrbSmQeiDsGa8SjGyCOGtuasMWwvp2P4=",
-    version = "v0.0.1",
-)
-
-go_repository(
-    name = "com_github_google_uuid",
-    importpath = "github.com/google/uuid",
-    sum = "h1:qJYtXnJRWmpe7m/3XlyhrsLrEURqHRM2kxzoxXqyUDs=",
-    version = "v1.2.0",
-)
-
-go_repository(
-    name = "com_github_google_go_containerregistry",
-    importpath = "github.com/google/go-containerregistry",
-    sha256 = "cadb09cb5bcbe00688c73d716d1c9e774d6e4959abec4c425a1b995faf33e964",
-    strip_prefix = "google-go-containerregistry-8a28419",
-    type = "tar.gz",
-    urls = ["https://api.github.com/repos/google/go-containerregistry/tarball/8a2841911ffee4f6892ca0083e89752fb46c48dd"],  # v0.1.4
-)
+SCHEMA_COMMIT = "7c57cd7d9baab381fbb2d38fba5aea95523f5183"
 
 # Java.
 
@@ -425,10 +111,14 @@ git_repository(
 )
 
 git_repository(
-    name = "com_github_promotedai_schema_aaa_git",
-    commit = SCHEMA_aaa_COMMIT,
-    remote = "ssh://git@github.com/promotedai/schema-aaa",
+    name = "com_github_johnynek_bazel_jar_jar",
+    commit = "55e3d3bf454641c496e592d77537cf8e65b241c0",
+    remote = "https://github.com/johnynek/bazel_jar_jar.git",
 )
+
+load("@com_github_johnynek_bazel_jar_jar//:jar_jar.bzl", "jar_jar_repositories")
+
+jar_jar_repositories()
 
 RULES_JVM_EXTERNAL_TAG = "4.1"
 
@@ -441,12 +131,33 @@ http_archive(
     url = "https://github.com/bazelbuild/rules_jvm_external/archive/%s.zip" % RULES_JVM_EXTERNAL_TAG,
 )
 
+load("@rules_jvm_external//:repositories.bzl", "rules_jvm_external_deps")
+
+rules_jvm_external_deps()
+
+load("@rules_jvm_external//:setup.bzl", "rules_jvm_external_setup")
+
+rules_jvm_external_setup()
+
 load("@rules_jvm_external//:defs.bzl", "artifact", "maven_install")
 load("@rules_jvm_external//:specs.bzl", "maven")
 
+AWS_JAVA_SDK_1_VERSION = "1.12.413"
+
+AWS_JAVA_SDK_2_VERSION = "2.17.186"
+
 # When version bumping, please update the "flink" container_pull definition near the bottom of this file.
 # Use the correct sha256 for the appropriate scala and flink version defined here.
-FLINK_VERSION = "1.14.4"
+FLINK_VERSION = "1.17.1"
+
+FLINK_MAJOR_VERSION = "1.17"
+
+FLINK_KINESIS_VERSION = "4.1.0-%s" % FLINK_MAJOR_VERSION
+
+PAIMON_VERSION = "0.5.0-incubating"
+#PAIMON_VERSION = "0.4.0-incubating"
+
+HIVE_VERSION = "3.1.3"
 
 SCALA_VERSION = "2.12"
 
@@ -454,7 +165,7 @@ AWS_KINESIS_DATA_ANALYTICS_VERSION = "1.1.0"
 
 JACKSON_VERSION = "2.11.2"
 
-HADOOP_VERSION = "3.3.0"
+HADOOP_VERSION = "3.3.4"
 
 AVRO_VERSION = "1.10.1"
 
@@ -462,14 +173,25 @@ PARQUET_VERSION = "1.12.3"
 
 TEST_CONTAINER_VERSION = "1.17.6"
 
-# TODO - support flink shaded common deps like guava.
-# TODO - separate out neverlink.
+LOG4J_VERSION = "2.20.0"
+
+GRPC_VERSION = "1.57.2"
+
+# TODO - Move Flink deps from maven to maven_test and maven_neverlink
 # https://github.com/bazelbuild/rules_jvm_external
+
+# gRPC
 maven_install(
     name = "maven_neverlink",
     artifacts = [
         maven.artifact(
-            artifact = "flink-streaming-java_%s" % SCALA_VERSION,
+            artifact = "flink-streaming-java",
+            group = "org.apache.flink",
+            neverlink = True,
+            version = FLINK_VERSION,
+        ),
+        maven.artifact(
+            artifact = "flink-core",
             group = "org.apache.flink",
             neverlink = True,
             version = FLINK_VERSION,
@@ -487,33 +209,235 @@ maven_install(
             version = FLINK_VERSION,
         ),
         maven.artifact(
-            artifact = "flink-clients_%s" % SCALA_VERSION,
+            artifact = "flink-runtime",
             group = "org.apache.flink",
             neverlink = True,
             version = FLINK_VERSION,
         ),
         maven.artifact(
-            artifact = "flink-table-uber_%s" % SCALA_VERSION,
+            artifact = "flink-clients",
             group = "org.apache.flink",
             neverlink = True,
             version = FLINK_VERSION,
         ),
+        maven.artifact(
+            artifact = "flink-table-api-java-uber",
+            group = "org.apache.flink",
+            neverlink = True,
+            version = FLINK_VERSION,
+        ),
+        maven.artifact(
+            artifact = "flink-table-runtime",
+            group = "org.apache.flink",
+            neverlink = True,
+            version = FLINK_VERSION,
+        ),
+        maven.artifact(
+            artifact = "flink-file-sink-common",
+            group = "org.apache.flink",
+            neverlink = True,
+            version = FLINK_VERSION,
+        ),
+        maven.artifact(
+            artifact = "flink-connector-files",
+            group = "org.apache.flink",
+            neverlink = True,
+            version = FLINK_VERSION,
+        ),
+        maven.artifact(
+            artifact = "jsr305",
+            group = "com.google.code.findbugs",
+            neverlink = True,
+            version = "3.0.2",
+        ),
+        maven.artifact(
+            # picked from https://github.com/apache/flink/pull/21747 to support Mac M1 chip
+            artifact = "frocksdbjni",
+            group = "com.ververica",
+            neverlink = True,
+            version = "6.20.3-ververica-2.0",
+        ),
+        maven.artifact(
+            artifact = "flink-statebackend-rocksdb",
+            exclusions = [
+                "com.ververica:frocksdbjni",
+            ],
+            group = "org.apache.flink",
+            neverlink = True,
+            version = FLINK_VERSION,
+        ),
+        maven.artifact(
+            artifact = "flink-csv",
+            group = "org.apache.flink",
+            neverlink = True,
+            version = FLINK_VERSION,
+        ),
+        maven.artifact(
+            artifact = "flink-metrics-prometheus",
+            group = "org.apache.flink",
+            neverlink = True,
+            version = FLINK_VERSION,
+        ),
+        maven.artifact(
+            artifact = "parquet-common",
+            group = "org.apache.parquet",
+            neverlink = True,
+            version = PARQUET_VERSION,
+        ),
+        maven.artifact(
+            artifact = "parquet-hadoop",
+            group = "org.apache.parquet",
+            neverlink = True,
+            version = PARQUET_VERSION,
+        ),
+        maven.artifact(
+            artifact = "flink-shaded-jackson",
+            group = "org.apache.flink",
+            neverlink = True,
+            version = "2.13.4-16.1",
+        ),
+        maven.artifact(
+            artifact = "flink-protobuf",
+            group = "org.apache.flink",
+            neverlink = True,
+            version = "1.17.0",
+        ),
+        maven.artifact(
+            artifact = "flink-annotations",
+            group = "org.apache.flink",
+            neverlink = True,
+            version = FLINK_VERSION,
+        ),
+        maven.artifact(
+            artifact = "flink-metrics-core",
+            group = "org.apache.flink",
+            neverlink = True,
+            version = FLINK_VERSION,
+        ),
+        maven.artifact(
+            artifact = "log4j-api",
+            group = "org.apache.logging.log4j",
+            neverlink = True,
+            version = LOG4J_VERSION,
+        ),
     ],
+    #    fetch_sources = True,
     repositories = [
         "https://maven.google.com",
         "https://repo1.maven.org/maven2",
     ],
     # Double the timeout to see if the 504si, that GitHub Actions is seeing, go away.
     resolve_timeout = 1200,
+    strict_visibility = True,
 )
 
 maven_install(
     name = "maven_test",
     artifacts = [
-        "org.testcontainers:testcontainers:%s" % TEST_CONTAINER_VERSION,
-        "org.testcontainers:junit-jupiter:%s" % TEST_CONTAINER_VERSION,
-        "org.testcontainers:kafka:%s" % TEST_CONTAINER_VERSION,
+        maven.artifact(
+            testonly = True,
+            artifact = "junit-jupiter",
+            group = "org.testcontainers",
+            version = TEST_CONTAINER_VERSION,
+        ),
+        maven.artifact(
+            testonly = True,
+            artifact = "testcontainers",
+            group = "org.testcontainers",
+            version = TEST_CONTAINER_VERSION,
+        ),
+        maven.artifact(
+            testonly = True,
+            artifact = "kafka",
+            group = "org.testcontainers",
+            version = TEST_CONTAINER_VERSION,
+        ),
+        maven.artifact(
+            # picked from https://github.com/apache/flink/pull/21747 to support Mac M1 chip
+            testonly = True,
+            artifact = "frocksdbjni",
+            group = "com.ververica",
+            version = "6.20.3-ververica-2.0",
+        ),
+        maven.artifact(
+            testonly = True,
+            artifact = "flink-csv",
+            group = "org.apache.flink",
+            version = FLINK_VERSION,
+        ),
+        maven.artifact(
+            testonly = True,
+            artifact = "flink-statebackend-rocksdb",
+            exclusions = [
+                "com.ververica:frocksdbjni",
+            ],
+            group = "org.apache.flink",
+            version = FLINK_VERSION,
+        ),
+        maven.artifact(
+            testonly = True,
+            artifact = "flink-table-runtime",
+            group = "org.apache.flink",
+            version = FLINK_VERSION,
+        ),
+        maven.artifact(
+            testonly = True,
+            artifact = "flink-table-planner_%s" % SCALA_VERSION,
+            group = "org.apache.flink",
+            version = FLINK_VERSION,
+        ),
+        maven.artifact(
+            testonly = True,
+            artifact = "flink-test-utils",
+            exclusions = [
+                "org.junit.jupiter:junit-jupiter",
+                "org.apache.logging.log4j:log4j-api",
+                "org.apache.logging.log4j:log4j-core",
+                "org.apache.logging.log4j:log4j-slf4j-impl",
+                "org.testcontainers:testcontainers",
+            ],
+            group = "org.apache.flink",
+            version = FLINK_VERSION,
+        ),
+        maven.artifact(
+            testonly = True,
+            artifact = "flink-metrics-prometheus",
+            group = "org.apache.flink",
+            version = FLINK_VERSION,
+        ),
+        # change this to log4j-slf4j2-impl for slf4j v2+
+        maven.artifact(
+            testonly = True,
+            artifact = "log4j-slf4j-impl",
+            group = "org.apache.logging.log4j",
+            version = LOG4J_VERSION,
+        ),
+        maven.artifact(
+            testonly = True,
+            artifact = "log4j-1.2-api",
+            group = "org.apache.logging.log4j",
+            version = LOG4J_VERSION,
+        ),
+        maven.artifact(
+            testonly = True,
+            artifact = "log4j-core",
+            group = "org.apache.logging.log4j",
+            version = LOG4J_VERSION,
+        ),
+        maven.artifact(
+            testonly = True,
+            artifact = "log4j-api",
+            group = "org.apache.logging.log4j",
+            version = LOG4J_VERSION,
+        ),
+        maven.artifact(
+            testonly = True,
+            artifact = "log4j-layout-template-json",
+            group = "org.apache.logging.log4j",
+            version = LOG4J_VERSION,
+        ),
     ],
+    #    fetch_sources = True,
     repositories = [
         "https://maven.google.com",
         "https://repo1.maven.org/maven2",
@@ -525,35 +449,70 @@ maven_install(
 maven_install(
     artifacts = [
         "org.apache.flink:flink-java:%s" % FLINK_VERSION,
-        "org.apache.flink:flink-streaming-java_%s:%s" % (SCALA_VERSION, FLINK_VERSION),
+        "org.apache.flink:flink-streaming-java:%s" % FLINK_VERSION,
         maven.artifact(
-            artifact = "flink-streaming-java_%s" % SCALA_VERSION,
+            artifact = "flink-streaming-java",
             classifier = "tests",
             group = "org.apache.flink",
             version = FLINK_VERSION,
         ),
-        "org.apache.flink:flink-streaming-scala_%s:%s" % (SCALA_VERSION, FLINK_VERSION),
+        #        "org.apache.flink:flink-streaming-scala_%s:%s" % (SCALA_VERSION, FLINK_VERSION),
         "org.apache.flink:flink-file-sink-common:%s" % FLINK_VERSION,
-        "org.apache.flink:flink-csv:%s" % FLINK_VERSION,
         "org.apache.flink:flink-connector-files:%s" % FLINK_VERSION,
-        "org.apache.flink:flink-connector-kafka_%s:%s" % (SCALA_VERSION, FLINK_VERSION),
-        "org.apache.flink:flink-connector-kinesis_%s:%s" % (SCALA_VERSION, FLINK_VERSION),
-        "org.apache.flink:flink-clients_%s:%s" % (SCALA_VERSION, FLINK_VERSION),
+        "org.apache.flink:flink-connector-kafka:%s" % FLINK_VERSION,
+        maven.artifact(
+            artifact = "flink-connector-kinesis",
+            exclusions = [
+                "*:*",
+            ],
+            group = "org.apache.flink",
+            version = FLINK_KINESIS_VERSION,
+        ),
+        "org.apache.flink:flink-clients:%s" % FLINK_VERSION,
         "org.apache.flink:flink-avro:%s" % FLINK_VERSION,
+        # We need the latest flink-protobuf version for some bug fix
+        "org.apache.flink:flink-protobuf:%s" % FLINK_VERSION,
         "org.apache.avro:avro-protobuf:%s" % AVRO_VERSION,
         "org.apache.flink:flink-json:%s" % FLINK_VERSION,
-        "ai.promoted:flink-parquet_%s:%s" % (SCALA_VERSION, FLINK_VERSION),
-        #"org.apache.flink:flink-parquet_%s:%s" % (SCALA_VERSION, FLINK_VERSION),
-        "org.apache.flink:flink-table-common:%s" % FLINK_VERSION,
         maven.artifact(
-            artifact = "flink-table-uber_%s" % SCALA_VERSION,
+            artifact = "hive-exec",
+            exclusions = [
+                "org.apache.curator:apache-curator",
+                "commons-lang:commons-lang",
+                "org.apache.commons:commons-lang3",
+                "com.google.guava:guava",
+                "org.eclipse.jetty.aggregate:*",
+                "javax.mail:mail",
+                "org.apache.zookeeper:zookeeper",
+                "org.pentaho:*",
+                "com.esotericsoftware:kryo-shaded",
+                "org.apache.hbase:*",
+                "org.apache.calcite:*",
+                "org.apache.calcite.avatica:*",
+            ],
+            group = "org.apache.hive",
+            version = HIVE_VERSION,
+        ),
+        maven.artifact(
+            artifact = "hive-common",
+            exclusions = [
+                "org.apache.logging.log4j:log4j-slf4j-impl",
+            ],
+            group = "org.apache.hive",
+            version = HIVE_VERSION,
+        ),
+        "org.apache.flink:flink-runtime-web:%s" % FLINK_VERSION,
+        "org.apache.flink:flink-parquet:%s" % FLINK_VERSION,
+        maven.artifact(
+            artifact = "flink-table-api-java-uber",
             group = "org.apache.flink",
             version = FLINK_VERSION,
         ),
-        "org.apache.flink:flink-test-utils_%s:%s" % (SCALA_VERSION, FLINK_VERSION),
         maven.artifact(
-            artifact = "flink-test-utils_%s" % SCALA_VERSION,
-            classifier = "tests",
+            artifact = "flink-test-utils",
+            exclusions = [
+                "org.junit.jupiter:junit-jupiter",
+            ],
             group = "org.apache.flink",
             version = FLINK_VERSION,
         ),
@@ -565,14 +524,18 @@ maven_install(
             version = FLINK_VERSION,
         ),
         "javax.annotation:javax.annotation-api:1.3.2",
-        "io.lettuce:lettuce-core:6.1.4.RELEASE",
-        "software.amazon.awssdk:bom:2.17.186",
-        "software.amazon.awssdk:regions:2.17.186",
-        "software.amazon.awssdk:sdk-core:2.17.186",
-        "software.amazon.awssdk:secretsmanager:2.17.186",
+        "io.lettuce:lettuce-core:6.2.3.RELEASE",
+        "software.amazon.awssdk:bom:%s" % AWS_JAVA_SDK_2_VERSION,
+        "software.amazon.awssdk:kms:%s" % AWS_JAVA_SDK_2_VERSION,
+        "software.amazon.awssdk:regions:%s" % AWS_JAVA_SDK_2_VERSION,
+        "software.amazon.awssdk:sdk-core:%s" % AWS_JAVA_SDK_2_VERSION,
+        "software.amazon.awssdk:secretsmanager:%s" % AWS_JAVA_SDK_2_VERSION,
+        "com.amazonaws:aws-java-sdk-glue:%s" % AWS_JAVA_SDK_1_VERSION,
+        "com.amazonaws:aws-java-sdk-core:%s" % AWS_JAVA_SDK_1_VERSION,
+        "com.amazonaws:aws-java-sdk-s3:%s" % AWS_JAVA_SDK_1_VERSION,
         "org.lz4:lz4-java:1.8.0",
         # A bunch needed to resolve Hadoop dependencies.
-        "org.apache.hadoop:hadoop-aws:2.10.0",
+        "org.apache.hadoop:hadoop-aws:%s" % HADOOP_VERSION,
         "org.apache.commons:commons-lang3:3.11",
         "com.github.ben-manes.caffeine:caffeine:2.9.3",
         "com.google.auto.value:auto-value:1.8.2",
@@ -582,27 +545,14 @@ maven_install(
         "com.google.truth.extensions:truth-java8-extension:1.1.3",
         "com.google.truth.extensions:truth-proto-extension:1.1.3",
         "org.apache.flink:flink-hadoop-compatibility_%s:%s" % (SCALA_VERSION, FLINK_VERSION),
+        "org.apache.paimon:paimon-flink-%s:%s" % (FLINK_MAJOR_VERSION, PAIMON_VERSION),
         maven.artifact(
             artifact = "hadoop-client",
-            exclusions = [
-                maven.exclusion(
-                    artifact = "log4j",
-                    group = "log4j",
-                ),
-                "org.slf4j:slf4j-log4j12",
-            ],
             group = "org.apache.hadoop",
             version = HADOOP_VERSION,
         ),
         maven.artifact(
             artifact = "hadoop-common",
-            exclusions = [
-                maven.exclusion(
-                    artifact = "log4j",
-                    group = "log4j",
-                ),
-                "org.slf4j:slf4j-log4j12",
-            ],
             group = "org.apache.hadoop",
             version = HADOOP_VERSION,
         ),
@@ -611,10 +561,7 @@ maven_install(
         "com.twitter:chill_%s:0.10.0" % SCALA_VERSION,
         "com.twitter:chill-java:0.10.0",
         "org.apache.parquet:parquet-avro:%s" % PARQUET_VERSION,
-        #"org.apache.parquet:parquet-common:%s" % PARQUET_VERSION,
-        #"org.apache.parquet:parquet-hadoop:%s" % PARQUET_VERSION,
         "ai.promoted:parquet-protobuf:%s" % PARQUET_VERSION,
-        #"org.apache.parquet:parquet-protobuf:%s" % PARQUET_VERSION,
         "com.github.ua-parser:uap-java:1.5.2",
         "com.ibm.icu:icu4j:4.6.1",
         "org.junit.jupiter:junit-jupiter-api:5.7.0",
@@ -627,11 +574,59 @@ maven_install(
         "com.fasterxml.jackson.core:jackson-databind:%s" % JACKSON_VERSION,
         "com.fasterxml.jackson.dataformat:jackson-dataformat-csv:%s" % JACKSON_VERSION,
         "info.picocli:picocli:4.5.1",
-        "org.apache.logging.log4j:log4j-slf4j-impl:2.11.2",
-        "org.apache.logging.log4j:log4j-api:2.11.2",
-        "org.apache.logging.log4j:log4j-core:2.11.2",
         "org.mockito:mockito-core:3.10.0",
         "org.json:json:20200518",
+        maven.artifact(
+            artifact = "grpc-netty-shaded",
+            exclusions = [
+                "com.google.guava:guava",
+            ],
+            group = "io.grpc",
+            version = GRPC_VERSION,
+        ),
+        maven.artifact(
+            artifact = "grpc-stub",
+            exclusions = [
+                "com.google.guava:guava",
+            ],
+            group = "io.grpc",
+            version = GRPC_VERSION,
+        ),
+        maven.artifact(
+            artifact = "grpc-api",
+            exclusions = [
+                "com.google.guava:guava",
+            ],
+            group = "io.grpc",
+            version = GRPC_VERSION,
+        ),
+    ],
+    excluded_artifacts = [
+        # globally exclude logging frameworks
+        "org.slf4j:slf4j-reload4j",
+        "log4j:log4j",
+        "org.apache.logging.log4j:*",
+    ],
+    #    fetch_sources = True,
+    repositories = [
+        "https://maven.google.com",
+        "https://repo1.maven.org/maven2",
+        "https://raw.githubusercontent.com/promotedai/maven-repo/main",
+        "https://repository.apache.org/content/repositories/snapshots/",
+    ],
+    # Double the timeout to see if the 504si, that GitHub Actions is seeing, go away.
+    resolve_timeout = 1200,
+)
+
+# Maven repos that are not for Flink jobs.  These can include more dependencies.
+maven_install(
+    name = "maven_nonflink",
+    artifacts = [
+        "org.apache.logging.log4j:log4j-api:%s" % LOG4J_VERSION,
+        "org.apache.logging.log4j:log4j-core:%s" % LOG4J_VERSION,
+        "org.apache.logging.log4j:log4j-layout-template-json:%s" % LOG4J_VERSION,
+        # change this to log4j-slf4j2-impl for slf4j v2+
+        "org.apache.logging.log4j:log4j-slf4j-impl:%s" % LOG4J_VERSION,
     ],
     repositories = [
         "https://maven.google.com",
@@ -714,80 +709,24 @@ container_pull(
 container_pull(
     name = "flink",
     # grab the digest by running `docker manifest inspect flink:[tag]`
-    digest = "sha256:965211e1d53251f26959eb666d4533419608a8681e28c4372dc4326904743346",
+    digest = "sha256:ac1256909e06a5bf8d91c92037bc322580e0c11995d0844f6876d05090c737c1",
     registry = "index.docker.io",
     repository = "library/flink",
-    tag = "1.14.4-java11",
+    # tag = "1.17.1-java11",
 )
 
 container_pull(
-    name = "lambda_go",
-    registry = "lambci",
-    repository = "lambda",
-    # TODO - use digests instead
-    tag = "go1.x",
-    # digest = "sha256:deadbeef",
+    name = "flink-arm",
+    # grab the digest by running `docker manifest inspect flink:[tag]`
+    digest = "sha256:bf975abc2b9307cbb2080193f666a8c8635cb8372aeecbb64a295107db441b5f",
+    registry = "index.docker.io",
+    repository = "library/flink",
+    # tag = "1.17.1-java11",
 )
 
-go_repository(
-    name = "com_github_eapache_go_xerial_snappy",
-    importpath = "github.com/eapache/go-xerial-snappy",
-    sum = "h1:YEetp8/yCZMuEPMUDHG0CW/brkkEp8mzqk2+ODEitlw=",
-    version = "v0.0.0-20180814174437-776d5712da21",
-)
+RULES_AVRO_COMMIT = "03a3148d0af92a430bfa74fed1c8e6abb0685c8c"
 
-go_repository(
-    name = "com_github_frankban_quicktest",
-    importpath = "github.com/frankban/quicktest",
-    sum = "h1:8sXhOn0uLys67V8EsXLc6eszDs8VXWxL3iRvebPhedY=",
-    version = "v1.11.3",
-)
-
-go_repository(
-    name = "com_github_google_go_cmp",
-    importpath = "github.com/google/go-cmp",
-    sum = "h1:L8R9j+yAqZuZjsqh/z+F1NCffTKKLShY6zXTItVIZ8M=",
-    version = "v0.5.4",
-)
-
-go_repository(
-    name = "com_github_klauspost_compress",
-    importpath = "github.com/klauspost/compress",
-    sum = "h1:VMAMUUOh+gaxKTMk+zqbjsSjsIcUcL/LF4o63i82QyA=",
-    version = "v1.9.8",
-)
-
-go_repository(
-    name = "com_github_xdg_scram",
-    importpath = "github.com/xdg/scram",
-    sum = "h1:u40Z8hqBAAQyv+vATcGgV0YCnDjqSL7/q/JyPhhJSPk=",
-    version = "v0.0.0-20180814205039-7eeb5667e42c",
-)
-
-go_repository(
-    name = "com_github_xdg_stringprep",
-    importpath = "github.com/xdg/stringprep",
-    sum = "h1:d9X0esnoa3dFsV0FG35rAT0RIhYFlPq7MiP+DW89La0=",
-    version = "v1.0.0",
-)
-
-go_repository(
-    name = "in_gopkg_yaml_v3",
-    importpath = "gopkg.in/yaml.v3",
-    sum = "h1:dUUwHk2QECo/6vqA44rthZ8ie2QXMNeKRTHCNY2nXvo=",
-    version = "v3.0.0-20200313102051-9f266ea9e77c",
-)
-
-go_repository(
-    name = "org_golang_x_xerrors",
-    importpath = "golang.org/x/xerrors",
-    sum = "h1:E7g+9GITq07hpfrRu66IVDexMakfv52eLZ2CXBWiKr4=",
-    version = "v0.0.0-20191204190536-9bdfabe68543",
-)
-
-RULES_AVRO_COMMIT = "b112ef1224c6b3eebc52be4d9aa58465487cc05f"
-
-RULES_AVRO_SHA256 = "239f9dc9deecdd8342c9cdb775ce38c2859b3e55b9988b9fc8e4d8e0a1eb5c70"
+RULES_AVRO_SHA256 = "df0be97b1be6332c5843e3062f8b232351e5b0537946c90e308c194a4f524c87"
 
 # Dan reviewed this Tar.  It's small.  Looks safe.
 http_archive(
@@ -799,6 +738,45 @@ http_archive(
 
 load("@io_bazel_rules_avro//avro:avro.bzl", "avro_repositories")
 
-# avro_repositories()
-# or specify a version
 avro_repositories(version = AVRO_VERSION)
+
+load("@rules_proto_grpc//java:repositories.bzl", rules_proto_grpc_java_repos = "java_repos")
+
+rules_proto_grpc_java_repos()
+
+load("@io_grpc_grpc_java//:repositories.bzl", "IO_GRPC_GRPC_JAVA_ARTIFACTS", "IO_GRPC_GRPC_JAVA_OVERRIDE_TARGETS", "grpc_java_repositories")
+
+grpc_java_repositories()
+
+maven_install(
+    name = "maven_grpc",
+    artifacts = IO_GRPC_GRPC_JAVA_ARTIFACTS,
+    generate_compat_repositories = True,
+    override_targets = IO_GRPC_GRPC_JAVA_OVERRIDE_TARGETS,
+    repositories = [
+        "https://repo.maven.apache.org/maven2/",
+    ],
+)
+
+load("@maven_grpc//:compat.bzl", "compat_repositories")
+
+compat_repositories()
+
+# Csharp needed because schema-internal BUILD files have the reference.
+load("@rules_proto_grpc//csharp:repositories.bzl", rules_proto_grpc_csharp_repos = "csharp_repos")
+
+rules_proto_grpc_csharp_repos()
+
+load("@io_bazel_rules_dotnet//dotnet:deps.bzl", "dotnet_repositories")
+
+dotnet_repositories()
+
+load(
+    "@io_bazel_rules_dotnet//dotnet:defs.bzl",
+    "dotnet_register_toolchains",
+    "dotnet_repositories_nugets",
+)
+
+dotnet_register_toolchains()
+
+dotnet_repositories_nugets()

@@ -5,6 +5,7 @@ load("//:junit5.bzl", "java_junit5_test")
 # Use java_test after bazel officially support junit5
 java_junit5_test(
     name = "validate_tests",
+    timeout = "short",
     test_package = "ai.promoted.metrics.logprocessor.common.functions.validate",
     srcs = glob(["*.java"]),
     deps = [

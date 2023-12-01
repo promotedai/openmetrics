@@ -1,0 +1,93 @@
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: flink-job
+spec:
+  image: flink:1.17
+  flinkVersion: v1_17
+  ingress:
+    template: "/{{namespace}}/{{name}}(/|$)(.*)"
+    className: "nginx"
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: "/$2"
+  serviceAccount: flink
+  podTemplate:
+    spec:
+      containers:
+        - name: flink-main-container
+          ports:
+            - containerPort: 8083
+              name: sql-gateway
+              protocol: TCP
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/bash
+                  - -c
+                  - "export LD_PRELOAD=$LD_PRELOAD:/usr/lib/x86_64-linux-gnu/libjemalloc.so &&
+                    sql-gateway.sh start -Dsql-gateway.endpoint.rest.address=0.0.0.0"
+  jobManager:
+    podTemplate:
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: job-manager-pod-template
+        annotations:
+          prometheus.io/scrape: "true"
+          prometheus.io/port: "9249"
+      spec:
+        containers:
+          - name: flink-main-container
+            volumeMounts:
+              - mountPath: /jobmanager-data
+                name: jobmanager-data
+        initContainers:
+          - name: volume-mount-hack
+            image: busybox
+            command: [ "sh", "-c", "chown -R 9999:9999 /jobmanager-data" ] # set owner to flink user(9999)
+            volumeMounts:
+              - mountPath: /jobmanager-data
+                name: jobmanager-data
+        volumes:
+          - name: jobmanager-data
+            ephemeral:
+              volumeClaimTemplate:
+                spec:
+                  accessModes: [ "ReadWriteOnce" ]
+                  storageClassName: standard
+                  resources:
+                    requests:
+                      storage: 1Gi
+  taskManager:
+    podTemplate:
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: task-manager-pod-template
+        annotations:
+          prometheus.io/scrape: "true"
+          prometheus.io/port: "9249"
+      spec:
+        containers:
+          - name: flink-main-container
+            volumeMounts:
+              - mountPath: /taskmanager-data
+                name: taskmanager-data
+        initContainers:
+          - name: volume-mount-hack
+            image: busybox
+            command: [ "sh", "-c", "chown -R 9999:9999 /taskmanager-data" ] # set owner to flink user(9999)
+            volumeMounts:
+              - mountPath: /taskmanager-data
+                name: taskmanager-data
+        volumes:
+          - name: taskmanager-data
+            ephemeral:
+              volumeClaimTemplate:
+                spec:
+                  accessModes: [ "ReadWriteOnce" ]
+                  storageClassName: standard
+                  resources:
+                    requests:
+                      storage: 1Gi

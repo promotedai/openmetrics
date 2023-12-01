@@ -2,45 +2,29 @@ package ai.promoted.metrics.logprocessor.common.functions.pushdown;
 
 import ai.promoted.proto.event.LogRequest;
 import ai.promoted.proto.event.SessionProfile;
-import java.util.function.Consumer;
-import org.apache.flink.util.Collector;
 
 /**
  * Copies {@link LogRequest}'s {@link SessionProfile} and fills in default base values. See base
  * class for more details.
  */
-public class PushDownAndFlatMapSessionProfile extends BasePushDownAndFlatMap<SessionProfile> {
+public class PushDownAndFlatMapSessionProfile
+    extends BasePushDownAndFlatMap<SessionProfile, SessionProfile.Builder> {
 
-  @Override
-  public void flatMap(LogRequest logRequest, Collector<SessionProfile> out) {
-    flatMap(logRequest, out::collect);
-  }
-
-  public void flatMap(LogRequest logRequest, Consumer<SessionProfile> out) {
-    logRequest.getSessionProfileList().stream()
-        .map(sessionProfile -> pushDownFields(sessionProfile, logRequest))
-        .forEach(out);
-  }
-
-  private static SessionProfile pushDownFields(
-      SessionProfile sessionProfile, LogRequest batchValue) {
-    SessionProfile.Builder builder = sessionProfile.toBuilder();
-    if (builder.getPlatformId() == 0) {
-      builder.setPlatformId(batchValue.getPlatformId());
-    }
-    if (batchValue.hasUserInfo()) {
-      pushDownUserIdFields(builder.getUserInfoBuilder(), batchValue);
-    } else if (builder.hasUserInfo()) {
-      // If the top-level `LogRequest.user_info` is not set, we still want to lowercase any
-      // logUserIds.
-      lowerCaseLogUserIdFields(builder.getUserInfoBuilder());
-    }
-    if (batchValue.hasTiming()) {
-      pushDownTiming(builder.getTimingBuilder(), batchValue);
-    }
-    if (batchValue.hasClientInfo()) {
-      pushDownClientInfo(builder.getClientInfoBuilder(), batchValue);
-    }
-    return builder.build();
+  public PushDownAndFlatMapSessionProfile() {
+    super(
+        LogRequest::getSessionProfileList,
+        SessionProfile::toBuilder,
+        SessionProfile.Builder::build,
+        SessionProfile.Builder::getPlatformId,
+        SessionProfile.Builder::setPlatformId,
+        SessionProfile.Builder::hasUserInfo,
+        SessionProfile.Builder::getUserInfo,
+        SessionProfile.Builder::setUserInfo,
+        SessionProfile.Builder::hasTiming,
+        SessionProfile.Builder::getTiming,
+        SessionProfile.Builder::setTiming,
+        SessionProfile.Builder::hasClientInfo,
+        SessionProfile.Builder::getClientInfo,
+        SessionProfile.Builder::setClientInfo);
   }
 }

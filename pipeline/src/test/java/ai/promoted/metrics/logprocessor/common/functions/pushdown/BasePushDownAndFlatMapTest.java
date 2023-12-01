@@ -11,13 +11,12 @@ public class BasePushDownAndFlatMapTest<T> {
 
   static final long PLATFORM_ID = 1L;
   static final String USER_ID = "userId1";
-  static final String UPPERCASE_LOG_USER_ID = "logUserId1";
-  static final String LOWERCASE_LOG_USER_ID = "loguserid1";
+  static final String LOG_USER_ID = "logUserId1";
   static final long TIME_EPOCH_MILLIS = 1601516627000L;
 
   static final long OTHER_PLATFORM_ID = PLATFORM_ID + 1;
   static final String OTHER_USER_ID = USER_ID + "alt";
-  static final String OTHER_LOG_USER_ID = LOWERCASE_LOG_USER_ID + "alt";
+  static final String OTHER_LOG_USER_ID = LOG_USER_ID + "alt";
   static final long OTHER_TIME_EPOCH_MILLIS = TIME_EPOCH_MILLIS + 1;
 
   static final String SESSION_ID = "sessionId1";
@@ -33,6 +32,7 @@ public class BasePushDownAndFlatMapTest<T> {
           .setTrafficType(ClientInfo.TrafficType.PRODUCTION)
           .setClientType(ClientInfo.ClientType.PLATFORM_SERVER)
           .build();
+  List<T> collector;
 
   static Timing createTiming(long timestamp) {
     return Timing.newBuilder().setClientLogTimestamp(timestamp).build();
@@ -41,8 +41,6 @@ public class BasePushDownAndFlatMapTest<T> {
   static LogRequest.Builder setBaseFields(LogRequest.Builder builder) {
     return builder.setPlatformId(PLATFORM_ID).setTiming(createTiming(TIME_EPOCH_MILLIS));
   }
-
-  List<T> collector;
 
   @BeforeEach
   public void setUp() {

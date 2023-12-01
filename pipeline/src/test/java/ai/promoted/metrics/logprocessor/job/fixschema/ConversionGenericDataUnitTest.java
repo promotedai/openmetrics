@@ -5,8 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import ai.promoted.metrics.datafix.RecursiveValue;
 import ai.promoted.metrics.datafix.TestRecord1;
 import ai.promoted.metrics.datafix.TestRecord2;
-import ai.promoted.metrics.logprocessor.common.avro.FixedProtobufData;
-import ai.promoted.metrics.logprocessor.common.avro.FixedProtobufDatumWriter;
+import ai.promoted.metrics.logprocessor.common.avro.PromotedProtobufData;
+import ai.promoted.metrics.logprocessor.common.avro.PromotedProtobufDatumWriter;
 import ai.promoted.metrics.logprocessor.common.fakedatagenerator.LogRequestFactory;
 import ai.promoted.proto.delivery.DeliveryLog;
 import ai.promoted.proto.event.LogRequest;
@@ -61,7 +61,7 @@ public class ConversionGenericDataUnitTest {
                 new Tuple2<>(
                     "ai.promoted.metrics.datafix.RecursiveValue",
                     "ai.promoted.metrics.datafix.Value")));
-    Schema schema = FixedProtobufData.get().getSchema(DeliveryLog.getDescriptor());
+    Schema schema = PromotedProtobufData.get().getSchema(DeliveryLog.getDescriptor());
     GenericRecord record = toGenericRecord(deliveryLogProto, data);
 
     long start = System.currentTimeMillis();
@@ -83,8 +83,9 @@ public class ConversionGenericDataUnitTest {
 
   private GenericRecord toGenericRecord(DeliveryLog deliveryLogProto, ConversionGenericData data)
       throws IOException {
-    Schema schema = FixedProtobufData.get().getSchema(DeliveryLog.getDescriptor());
-    FixedProtobufDatumWriter<DeliveryLog> datumWriter = new FixedProtobufDatumWriter<>(schema);
+    Schema schema = PromotedProtobufData.get().getSchema(DeliveryLog.getDescriptor());
+    PromotedProtobufDatumWriter<DeliveryLog> datumWriter =
+        new PromotedProtobufDatumWriter<>(schema);
     DataFileWriter<DeliveryLog> dataFileWriter = new DataFileWriter<>(datumWriter);
     dataFileWriter.setCodec(CodecFactory.snappyCodec());
     ByteArrayOutputStream stream = new ByteArrayOutputStream();

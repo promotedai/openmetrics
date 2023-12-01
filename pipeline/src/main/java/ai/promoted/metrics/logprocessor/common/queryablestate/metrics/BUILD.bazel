@@ -1,0 +1,14 @@
+load("@rules_java//java:defs.bzl", "java_library")
+
+java_library(
+    name = "metrics",
+    srcs = glob(["*.java"]),
+    visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
+    deps = [
+        "@maven//:io_grpc_grpc_api",
+        "@maven_neverlink//:org_apache_flink_flink_metrics_core",
+        "@maven_neverlink//:org_apache_flink_flink_metrics_prometheus",
+        "@maven_neverlink//:org_apache_flink_flink_runtime",
+        "@maven_neverlink//:org_apache_logging_log4j_log4j_api",
+    ],
+)

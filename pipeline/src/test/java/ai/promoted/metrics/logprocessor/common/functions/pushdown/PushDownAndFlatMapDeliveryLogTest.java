@@ -15,7 +15,7 @@ public class PushDownAndFlatMapDeliveryLogTest extends BasePushDownAndFlatMapTes
     new PushDownAndFlatMapDeliveryLog()
         .flatMap(
             setBaseFields(LogRequest.newBuilder())
-                .setUserInfo(UserInfo.newBuilder().setLogUserId(LOWERCASE_LOG_USER_ID))
+                .setUserInfo(UserInfo.newBuilder().setLogUserId(LOG_USER_ID))
                 .setClientInfo(CLIENT_INFO)
                 .addDeliveryLog(DeliveryLog.newBuilder())
                 .build(),
@@ -27,7 +27,7 @@ public class PushDownAndFlatMapDeliveryLogTest extends BasePushDownAndFlatMapTes
                 .setRequest(
                     Request.newBuilder()
                         .setPlatformId(PLATFORM_ID)
-                        .setUserInfo(UserInfo.newBuilder().setLogUserId(LOWERCASE_LOG_USER_ID))
+                        .setUserInfo(UserInfo.newBuilder().setLogUserId(LOG_USER_ID))
                         .setTiming(createTiming(TIME_EPOCH_MILLIS))
                         .setClientInfo(CLIENT_INFO))
                 .build());
@@ -38,15 +38,14 @@ public class PushDownAndFlatMapDeliveryLogTest extends BasePushDownAndFlatMapTes
     new PushDownAndFlatMapDeliveryLog()
         .flatMap(
             setBaseFields(LogRequest.newBuilder())
-                .setUserInfo(UserInfo.newBuilder().setLogUserId(LOWERCASE_LOG_USER_ID))
+                .setUserInfo(UserInfo.newBuilder().setLogUserId(LOG_USER_ID))
                 .addDeliveryLog(
                     DeliveryLog.newBuilder()
                         .setPlatformId(PLATFORM_ID)
                         .setRequest(
                             Request.newBuilder()
                                 .setPlatformId(PLATFORM_ID)
-                                .setUserInfo(
-                                    UserInfo.newBuilder().setLogUserId(LOWERCASE_LOG_USER_ID))
+                                .setUserInfo(UserInfo.newBuilder().setLogUserId(LOG_USER_ID))
                                 .setTiming(createTiming(TIME_EPOCH_MILLIS))))
                 .build(),
             collector::add);
@@ -57,7 +56,7 @@ public class PushDownAndFlatMapDeliveryLogTest extends BasePushDownAndFlatMapTes
                 .setRequest(
                     Request.newBuilder()
                         .setPlatformId(PLATFORM_ID)
-                        .setUserInfo(UserInfo.newBuilder().setLogUserId(LOWERCASE_LOG_USER_ID))
+                        .setUserInfo(UserInfo.newBuilder().setLogUserId(LOG_USER_ID))
                         .setTiming(createTiming(TIME_EPOCH_MILLIS)))
                 .build());
   }
@@ -67,7 +66,7 @@ public class PushDownAndFlatMapDeliveryLogTest extends BasePushDownAndFlatMapTes
     new PushDownAndFlatMapDeliveryLog()
         .flatMap(
             setBaseFields(LogRequest.newBuilder())
-                .setUserInfo(UserInfo.newBuilder().setLogUserId(LOWERCASE_LOG_USER_ID))
+                .setUserInfo(UserInfo.newBuilder().setLogUserId(LOG_USER_ID))
                 .addDeliveryLog(
                     DeliveryLog.newBuilder()
                         .setPlatformId(OTHER_PLATFORM_ID)
@@ -90,36 +89,6 @@ public class PushDownAndFlatMapDeliveryLogTest extends BasePushDownAndFlatMapTes
   }
 
   @Test
-  public void lowerCaseLogDeliveryLogId() {
-    new PushDownAndFlatMapDeliveryLog()
-        .flatMap(
-            LogRequest.newBuilder()
-                .setPlatformId(PLATFORM_ID)
-                .setUserInfo(UserInfo.newBuilder().setLogUserId(LOWERCASE_LOG_USER_ID))
-                .setTiming(createTiming(TIME_EPOCH_MILLIS))
-                .addDeliveryLog(
-                    DeliveryLog.newBuilder()
-                        .setPlatformId(OTHER_PLATFORM_ID)
-                        .setRequest(
-                            Request.newBuilder()
-                                .setUserInfo(
-                                    UserInfo.newBuilder().setLogUserId(UPPERCASE_LOG_USER_ID))
-                                .setTiming(createTiming(TIME_EPOCH_MILLIS))))
-                .build(),
-            collector::add);
-    assertThat(collector)
-        .containsExactly(
-            DeliveryLog.newBuilder()
-                .setPlatformId(OTHER_PLATFORM_ID)
-                .setRequest(
-                    Request.newBuilder()
-                        .setPlatformId(OTHER_PLATFORM_ID)
-                        .setUserInfo(UserInfo.newBuilder().setLogUserId(LOWERCASE_LOG_USER_ID))
-                        .setTiming(createTiming(TIME_EPOCH_MILLIS)))
-                .build());
-  }
-
-  @Test
   public void ifNoTopLevelUserInfo() {
     new PushDownAndFlatMapDeliveryLog()
         .flatMap(
@@ -131,8 +100,7 @@ public class PushDownAndFlatMapDeliveryLogTest extends BasePushDownAndFlatMapTes
                         .setPlatformId(OTHER_PLATFORM_ID)
                         .setRequest(
                             Request.newBuilder()
-                                .setUserInfo(
-                                    UserInfo.newBuilder().setLogUserId(UPPERCASE_LOG_USER_ID))
+                                .setUserInfo(UserInfo.newBuilder().setLogUserId(LOG_USER_ID))
                                 .setTiming(createTiming(TIME_EPOCH_MILLIS))))
                 .build(),
             collector::add);
@@ -143,7 +111,7 @@ public class PushDownAndFlatMapDeliveryLogTest extends BasePushDownAndFlatMapTes
                 .setRequest(
                     Request.newBuilder()
                         .setPlatformId(OTHER_PLATFORM_ID)
-                        .setUserInfo(UserInfo.newBuilder().setLogUserId(LOWERCASE_LOG_USER_ID))
+                        .setUserInfo(UserInfo.newBuilder().setLogUserId(LOG_USER_ID))
                         .setTiming(createTiming(TIME_EPOCH_MILLIS)))
                 .build());
   }

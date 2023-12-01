@@ -1,0 +1,17 @@
+load("@rules_java//java:defs.bzl", "java_binary", "java_library")
+
+java_library(
+    name = "common",
+    srcs = glob(["*.java"]),
+    visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
+    deps = [
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions/base",
+        "@com_github_promotedai_schema_internal_git//proto/event:event_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven_neverlink//:org_apache_flink_flink_core",
+        "@maven_neverlink//:org_apache_flink_flink_java",
+        "@maven_neverlink//:org_apache_flink_flink_file_sink_common",
+        "@maven_neverlink//:org_apache_flink_flink_streaming_java",
+        "@maven_neverlink//:org_apache_flink_flink_table_api_java_uber",
+    ],
+)

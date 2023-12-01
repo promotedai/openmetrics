@@ -1,7 +1,5 @@
 package ai.promoted.metrics.logprocessor.common.testing;
 
-import ai.promoted.metrics.logprocessor.common.avro.FixedProtobufData;
-import ai.promoted.metrics.logprocessor.common.avro.FixedProtobufDatumWriter;
 import ai.promoted.metrics.logprocessor.common.avro.PromotedProtobufData;
 import ai.promoted.metrics.logprocessor.common.avro.PromotedProtobufDatumWriter;
 import com.google.common.collect.ImmutableList;
@@ -95,8 +93,8 @@ public class AvroProtoUtils {
       return ImmutableList.of();
     }
     Class<?> avroProtoClass = messages.iterator().next().getClass();
-    Schema schema = FixedProtobufData.get().getSchema(avroProtoClass);
-    FixedProtobufDatumWriter<T> pbWriter = new FixedProtobufDatumWriter<>(schema);
+    Schema schema = PromotedProtobufData.get().getSchema(avroProtoClass);
+    PromotedProtobufDatumWriter<T> pbWriter = new PromotedProtobufDatumWriter<>(schema);
     DataFileWriter<T> dataFileWriter = new DataFileWriter<>(pbWriter);
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     dataFileWriter.create(schema, out);

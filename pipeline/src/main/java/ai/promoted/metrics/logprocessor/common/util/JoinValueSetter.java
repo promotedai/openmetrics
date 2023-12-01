@@ -2,7 +2,6 @@ package ai.promoted.metrics.logprocessor.common.util;
 
 import ai.promoted.metrics.common.Field;
 import ai.promoted.metrics.error.MismatchError;
-import ai.promoted.metrics.logprocessor.common.error.MismatchErrorTag;
 import ai.promoted.proto.event.JoinedIdentifiers;
 import java.util.function.Function;
 
@@ -11,10 +10,16 @@ import java.util.function.Function;
  */
 public class JoinValueSetter {
 
+  private final JoinValueSetterOptions options;
+
+  public JoinValueSetter(JoinValueSetterOptions options) {
+    this.options = options;
+  }
+
   public static ai.promoted.metrics.common.JoinedIdentifiers toAvro(JoinedIdentifiers ids) {
     return ai.promoted.metrics.common.JoinedIdentifiers.newBuilder()
         .setPlatformId(ids.getPlatformId())
-        .setLogUserId(ids.getLogUserId())
+        .setAnonUserId(ids.getAnonUserId())
         .setSessionId(ids.getSessionId())
         .setViewId(ids.getViewId())
         .setAutoViewId(ids.getAutoViewId())
@@ -22,12 +27,6 @@ public class JoinValueSetter {
         .setInsertionId(ids.getInsertionId())
         .setImpressionId(ids.getImpressionId())
         .build();
-  }
-
-  private final JoinValueSetterOptions options;
-
-  public JoinValueSetter(JoinValueSetterOptions options) {
-    this.options = options;
   }
 
   public void setValue(
@@ -50,7 +49,6 @@ public class JoinValueSetter {
         options
             .errorLogger()
             .accept(
-                MismatchErrorTag.TAG,
                 MismatchError.newBuilder()
                     .setRecordType(options.recordType())
                     .setField(field)
@@ -58,7 +56,7 @@ public class JoinValueSetter {
                     .setRhsRecordId(options.recordId())
                     .setLhsLong(lhsValue)
                     .setRhsLong(rhsValue)
-                    .setLogTimestamp(options.logTimestamp())
+                    .setEventApiTimestamp(options.eventApiTimestamp())
                     .setLogFunctionName(options.logFunctionName())
                     .build());
       }
@@ -85,7 +83,6 @@ public class JoinValueSetter {
         options
             .errorLogger()
             .accept(
-                MismatchErrorTag.TAG,
                 MismatchError.newBuilder()
                     .setRecordType(options.recordType())
                     .setField(field)
@@ -93,7 +90,7 @@ public class JoinValueSetter {
                     .setRhsRecordId(options.recordId())
                     .setLhsString(lhsValue)
                     .setRhsString(rhsValue)
-                    .setLogTimestamp(options.logTimestamp())
+                    .setEventApiTimestamp(options.eventApiTimestamp())
                     .setLogFunctionName(options.logFunctionName())
                     .build());
       }

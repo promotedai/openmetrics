@@ -4,7 +4,15 @@ source "$(dirname "$0")/../../../config/config.sh"
 
 printf "Creating Flink RawOutputJob..."
 eval $(minikube -p minikube docker-env)
-bazel run src/main/java/ai/promoted/metrics/logprocessor/job/raw:RawOutputJob_image -- --norun
+
+build_arm_opt=""
+ARCH=$(uname -m)
+if [[ "$ARCH" == "arm"* ]]; then
+  printf "\nBuilding for $ARCH\n"
+  build_arm_opt="--//pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/raw:image-arch=arm"
+fi
+
+bazel run src/main/java/ai/promoted/metrics/logprocessor/job/raw:RawOutputJob_image ${build_arm_opt} -- --norun
 if [ $? -ne 0 ]; then
   printf "Failed!\n"
   exit 1
@@ -13,7 +21,7 @@ else
 fi
 
 printf "Creating Flink RawOutputJob jobs..."
-kubectl apply --namespace $LOCAL_K8S_NAMESPACE -f $PROMOTED_DIR/metrics/pipeline/kubernetes/local/raw-output-job.yaml
+kubectl apply -k kubernetes/_envs/prm/raw-output/local/blue
 if [ $? -ne 0 ]; then
   printf "Failed!\n"
   exit 1

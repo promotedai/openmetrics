@@ -3,7 +3,7 @@
 source "$(dirname "$0")/../../../config/config.sh"
 
 printf "Deleting Flink CounterJob..."
-kubectl delete --namespace $LOCAL_K8S_NAMESPACE -f $PROMOTED_DIR/metrics/pipeline/kubernetes/local/counter-job.yaml || true
+kubectl delete -k kubernetes/_envs/prm/counter/local/blue
 printf "Done!\n"
 printf "Deleting Flink CounterJob Jobs..."
 JOBMANAGER=`kubectl get pods --namespace $LOCAL_K8S_NAMESPACE | grep flink-jobmanager-0 | awk '{print $1}'`

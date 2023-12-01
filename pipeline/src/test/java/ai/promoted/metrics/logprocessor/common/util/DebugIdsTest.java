@@ -11,9 +11,13 @@ import ai.promoted.proto.delivery.Request;
 import ai.promoted.proto.delivery.Response;
 import ai.promoted.proto.event.Action;
 import ai.promoted.proto.event.Impression;
-import ai.promoted.proto.event.JoinedEvent;
 import ai.promoted.proto.event.JoinedIdentifiers;
+import ai.promoted.proto.event.JoinedImpression;
+import ai.promoted.proto.event.TinyAction;
+import ai.promoted.proto.event.TinyAttributedAction;
+import ai.promoted.proto.event.TinyCommonInfo;
 import ai.promoted.proto.event.TinyDeliveryLog;
+import ai.promoted.proto.event.TinyInsertionCore;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
@@ -110,172 +114,162 @@ public class DebugIdsTest {
   // matches(JoinedEvent)
 
   @Test
-  public void matchesJoinedEvent_noIds() {
+  public void matchesJoinedImpression_noIds() {
     DebugIds debugIds = DebugIds.empty();
     assertFalse(
         debugIds.matches(
-            JoinedEvent.newBuilder()
+            JoinedImpression.newBuilder()
                 .setIds(JoinedIdentifiers.newBuilder().setUserId("userId"))
                 .build()));
   }
 
   @Test
-  public void matchesJoinedEvent_matchUserId() {
+  public void matchesJoinedImpression_matchUserId() {
     DebugIds debugIds = DebugIds.builder().setUserIds(set("userId1")).build();
     assertTrue(
         debugIds.matches(
-            JoinedEvent.newBuilder()
+            JoinedImpression.newBuilder()
                 .setIds(JoinedIdentifiers.newBuilder().setUserId("userId1"))
                 .build()));
   }
 
   @Test
-  public void matchesJoinedEvent_noMatchUserId() {
+  public void matchesJoinedImpression_noMatchUserId() {
     DebugIds debugIds = DebugIds.builder().setUserIds(set("userId1")).build();
     assertFalse(
         debugIds.matches(
-            JoinedEvent.newBuilder()
+            JoinedImpression.newBuilder()
                 .setIds(JoinedIdentifiers.newBuilder().setUserId("userId2"))
                 .build()));
   }
 
   @Test
-  public void matchesJoinedEvent_matchLogUserId() {
-    DebugIds debugIds = DebugIds.builder().setLogUserIds(set("logUserId1")).build();
+  public void matchesJoinedImpression_matchAnonUserId() {
+    DebugIds debugIds = DebugIds.builder().setAnonUserIds(set("anonUserId1")).build();
     assertTrue(
         debugIds.matches(
-            JoinedEvent.newBuilder()
-                .setIds(JoinedIdentifiers.newBuilder().setLogUserId("logUserId1"))
+            JoinedImpression.newBuilder()
+                .setIds(JoinedIdentifiers.newBuilder().setAnonUserId("anonUserId1"))
                 .build()));
   }
 
   @Test
-  public void matchesJoinedEvent_noMatchLogUserId() {
-    DebugIds debugIds = DebugIds.builder().setLogUserIds(set("logUserId1")).build();
+  public void matchesJoinedImpression_noMatchAnonUserId() {
+    DebugIds debugIds = DebugIds.builder().setAnonUserIds(set("anonUserId1")).build();
     assertFalse(
         debugIds.matches(
-            JoinedEvent.newBuilder()
-                .setIds(JoinedIdentifiers.newBuilder().setLogUserId("logUserId2"))
+            JoinedImpression.newBuilder()
+                .setIds(JoinedIdentifiers.newBuilder().setAnonUserId("anonUserId2"))
                 .build()));
   }
 
   @Test
-  public void matchesJoinedEvent_matchSessionId() {
+  public void matchesJoinedImpression_matchSessionId() {
     DebugIds debugIds = DebugIds.builder().setSessionIds(set("sessionId1")).build();
     assertTrue(
         debugIds.matches(
-            JoinedEvent.newBuilder()
+            JoinedImpression.newBuilder()
                 .setIds(JoinedIdentifiers.newBuilder().setSessionId("sessionId1"))
                 .build()));
   }
 
   @Test
-  public void matchesJoinedEvent_noMatchSessionId() {
+  public void matchesJoinedImpression_noMatchSessionId() {
     DebugIds debugIds = DebugIds.builder().setSessionIds(set("sessionId1")).build();
     assertFalse(
         debugIds.matches(
-            JoinedEvent.newBuilder()
+            JoinedImpression.newBuilder()
                 .setIds(JoinedIdentifiers.newBuilder().setSessionId("sessionId2"))
                 .build()));
   }
 
   @Test
-  public void matchesJoinedEvent_matchViewId() {
+  public void matchesJoinedImpression_matchViewId() {
     DebugIds debugIds = DebugIds.builder().setViewIds(set("viewId1")).build();
     assertTrue(
         debugIds.matches(
-            JoinedEvent.newBuilder()
+            JoinedImpression.newBuilder()
                 .setIds(JoinedIdentifiers.newBuilder().setViewId("viewId1"))
                 .build()));
   }
 
   @Test
-  public void matchesJoinedEvent_noMatchViewId() {
+  public void matchesJoinedImpression_noMatchViewId() {
     DebugIds debugIds = DebugIds.builder().setViewIds(set("viewId1")).build();
     assertFalse(
         debugIds.matches(
-            JoinedEvent.newBuilder()
+            JoinedImpression.newBuilder()
                 .setIds(JoinedIdentifiers.newBuilder().setViewId("viewId2"))
                 .build()));
   }
 
   @Test
-  public void matchesJoinedEvent_matchRequestId() {
+  public void matchesJoinedImpression_matchRequestId() {
     DebugIds debugIds = DebugIds.builder().setRequestIds(set("requestId1")).build();
     assertTrue(
         debugIds.matches(
-            JoinedEvent.newBuilder()
+            JoinedImpression.newBuilder()
                 .setIds(JoinedIdentifiers.newBuilder().setRequestId("requestId1"))
                 .build()));
   }
 
   @Test
-  public void matchesJoinedEvent_noMatchRequestId() {
+  public void matchesJoinedImpression_noMatchRequestId() {
     DebugIds debugIds = DebugIds.builder().setRequestIds(set("requestId1")).build();
     assertFalse(
         debugIds.matches(
-            JoinedEvent.newBuilder()
+            JoinedImpression.newBuilder()
                 .setIds(JoinedIdentifiers.newBuilder().setRequestId("requestId2"))
                 .build()));
   }
 
   @Test
-  public void matchesJoinedEvent_matchInsertionId() {
+  public void matchesJoinedImpression_matchInsertionId() {
     DebugIds debugIds = DebugIds.builder().setInsertionIds(set("insertionId1")).build();
     assertTrue(
         debugIds.matches(
-            JoinedEvent.newBuilder()
+            JoinedImpression.newBuilder()
                 .setIds(JoinedIdentifiers.newBuilder().setInsertionId("insertionId1"))
                 .build()));
   }
 
   @Test
-  public void matchesJoinedEvent_noMatchInsertionId() {
+  public void matchesJoinedImpression_noMatchInsertionId() {
     DebugIds debugIds = DebugIds.builder().setInsertionIds(set("insertionId1")).build();
     assertFalse(
         debugIds.matches(
-            JoinedEvent.newBuilder()
+            JoinedImpression.newBuilder()
                 .setIds(JoinedIdentifiers.newBuilder().setInsertionId("insertionId2"))
                 .build()));
   }
 
   @Test
-  public void matchesJoinedEvent_matchImpressionId() {
+  public void matchesJoinedImpression_matchImpressionId() {
     DebugIds debugIds = DebugIds.builder().setImpressionIds(set("impressionId1")).build();
     assertTrue(
         debugIds.matches(
-            JoinedEvent.newBuilder()
+            JoinedImpression.newBuilder()
                 .setIds(JoinedIdentifiers.newBuilder().setImpressionId("impressionId1"))
                 .build()));
   }
 
   @Test
-  public void matchesJoinedEvent_noMatchImpressionId() {
+  public void matchesJoinedImpression_noMatchImpressionId() {
     DebugIds debugIds = DebugIds.builder().setImpressionIds(set("impressionId1")).build();
     assertFalse(
         debugIds.matches(
-            JoinedEvent.newBuilder()
+            JoinedImpression.newBuilder()
                 .setIds(JoinedIdentifiers.newBuilder().setImpressionId("impressionId2"))
                 .build()));
   }
 
   @Test
-  public void matchesJoinedEvent_matchActionId() {
+  public void matchesAttributedAction_matchActionId() {
     DebugIds debugIds = DebugIds.builder().setActionIds(set("actionId1")).build();
     assertTrue(
         debugIds.matches(
-            JoinedEvent.newBuilder()
-                .setAction(Action.newBuilder().setActionId("actionId1"))
-                .build()));
-  }
-
-  @Test
-  public void matchesJoinedEvent_noMatchActionId() {
-    DebugIds debugIds = DebugIds.builder().setActionIds(set("actionId1")).build();
-    assertFalse(
-        debugIds.matches(
-            JoinedEvent.newBuilder()
-                .setAction(Action.newBuilder().setActionId("actionId2"))
+            TinyAttributedAction.newBuilder()
+                .setAction(TinyAction.newBuilder().setActionId("actionId1"))
                 .build()));
   }
 
@@ -288,15 +282,23 @@ public class DebugIdsTest {
   }
 
   @Test
-  public void matchesTinyFlatLog_matchLogUserId() {
-    DebugIds debugIds = DebugIds.builder().setLogUserIds(set("logUserId1")).build();
-    assertTrue(debugIds.matches(TinyDeliveryLog.newBuilder().setLogUserId("logUserId1").build()));
+  public void matchesTinyFlatLog_matchAnonUserId() {
+    DebugIds debugIds = DebugIds.builder().setAnonUserIds(set("anonUserId1")).build();
+    assertTrue(
+        debugIds.matches(
+            TinyDeliveryLog.newBuilder()
+                .setCommon(TinyCommonInfo.newBuilder().setAnonUserId("anonUserId1"))
+                .build()));
   }
 
   @Test
-  public void matchesTinyFlatLog_noMatchLogUserId() {
-    DebugIds debugIds = DebugIds.builder().setLogUserIds(set("logUserId1")).build();
-    assertFalse(debugIds.matches(TinyDeliveryLog.newBuilder().setLogUserId("logUserId2").build()));
+  public void matchesTinyFlatLog_noMatchAnonUserId() {
+    DebugIds debugIds = DebugIds.builder().setAnonUserIds(set("anonUserId1")).build();
+    assertFalse(
+        debugIds.matches(
+            TinyDeliveryLog.newBuilder()
+                .setCommon(TinyCommonInfo.newBuilder().setAnonUserId("anonUserId2"))
+                .build()));
   }
 
   @Test
@@ -329,8 +331,7 @@ public class DebugIdsTest {
     assertTrue(
         debugIds.matches(
             TinyDeliveryLog.newBuilder()
-                .addResponseInsertion(
-                    TinyDeliveryLog.TinyInsertion.newBuilder().setInsertionId("insertionId1"))
+                .addResponseInsertion(TinyInsertionCore.newBuilder().setInsertionId("insertionId1"))
                 .build()));
   }
 
@@ -340,8 +341,7 @@ public class DebugIdsTest {
     assertFalse(
         debugIds.matches(
             TinyDeliveryLog.newBuilder()
-                .addResponseInsertion(
-                    TinyDeliveryLog.TinyInsertion.newBuilder().setInsertionId("insertionId2"))
+                .addResponseInsertion(TinyInsertionCore.newBuilder().setInsertionId("insertionId2"))
                 .build()));
   }
 
@@ -366,15 +366,15 @@ public class DebugIdsTest {
   }
 
   @Test
-  public void matchesString_matchLogUserId() {
-    DebugIds debugIds = DebugIds.builder().setLogUserIds(set("logUserId1")).build();
-    assertTrue(debugIds.matches("logUserId1"));
+  public void matchesString_matchAnonUserId() {
+    DebugIds debugIds = DebugIds.builder().setAnonUserIds(set("anonUserId1")).build();
+    assertTrue(debugIds.matches("anonUserId1"));
   }
 
   @Test
-  public void matchesString_noMatchLogUserId() {
-    DebugIds debugIds = DebugIds.builder().setLogUserIds(set("logUserId1")).build();
-    assertFalse(debugIds.matches("logUserId2"));
+  public void matchesString_noMatchAnonUserId() {
+    DebugIds debugIds = DebugIds.builder().setAnonUserIds(set("anonUserId1")).build();
+    assertFalse(debugIds.matches("anonUserId2"));
   }
 
   @Test
@@ -534,14 +534,14 @@ public class DebugIdsTest {
   }
 
   @Test
-  public void matchesDeliveryLog_matchLogUserId() {
-    DebugIds debugIds = DebugIds.builder().setLogUserIds(set("logUserId1")).build();
+  public void matchesDeliveryLog_matchAnonUserId() {
+    DebugIds debugIds = DebugIds.builder().setAnonUserIds(set("anonUserId1")).build();
     assertTrue(
         debugIds.matches(
             DeliveryLog.newBuilder()
                 .setRequest(
                     Request.newBuilder()
-                        .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId1")))
+                        .setUserInfo(UserInfo.newBuilder().setAnonUserId("anonUserId1")))
                 .build()));
     assertTrue(
         debugIds.matches(
@@ -550,7 +550,7 @@ public class DebugIdsTest {
                     Request.newBuilder()
                         .addInsertion(
                             Insertion.newBuilder()
-                                .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId1"))))
+                                .setUserInfo(UserInfo.newBuilder().setAnonUserId("anonUserId1"))))
                 .build()));
     assertTrue(
         debugIds.matches(
@@ -559,7 +559,7 @@ public class DebugIdsTest {
                     DeliveryExecution.newBuilder()
                         .addExecutionInsertion(
                             Insertion.newBuilder()
-                                .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId1"))))
+                                .setUserInfo(UserInfo.newBuilder().setAnonUserId("anonUserId1"))))
                 .build()));
     assertTrue(
         debugIds.matches(
@@ -568,19 +568,19 @@ public class DebugIdsTest {
                     Response.newBuilder()
                         .addInsertion(
                             Insertion.newBuilder()
-                                .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId1"))))
+                                .setUserInfo(UserInfo.newBuilder().setAnonUserId("anonUserId1"))))
                 .build()));
   }
 
   @Test
-  public void matchesDeliveryLog_noMatchLogUserId() {
-    DebugIds debugIds = DebugIds.builder().setLogUserIds(set("logUserId1")).build();
+  public void matchesDeliveryLog_noMatchAnonUserId() {
+    DebugIds debugIds = DebugIds.builder().setAnonUserIds(set("anonUserId1")).build();
     assertFalse(
         debugIds.matches(
             DeliveryLog.newBuilder()
                 .setRequest(
                     Request.newBuilder()
-                        .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId2")))
+                        .setUserInfo(UserInfo.newBuilder().setAnonUserId("anonUserId2")))
                 .build()));
     assertFalse(
         debugIds.matches(
@@ -589,7 +589,7 @@ public class DebugIdsTest {
                     Request.newBuilder()
                         .addInsertion(
                             Insertion.newBuilder()
-                                .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId2"))))
+                                .setUserInfo(UserInfo.newBuilder().setAnonUserId("anonUserId2"))))
                 .build()));
     assertFalse(
         debugIds.matches(
@@ -598,7 +598,7 @@ public class DebugIdsTest {
                     DeliveryExecution.newBuilder()
                         .addExecutionInsertion(
                             Insertion.newBuilder()
-                                .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId2"))))
+                                .setUserInfo(UserInfo.newBuilder().setAnonUserId("anonUserId2"))))
                 .build()));
     assertFalse(
         debugIds.matches(
@@ -607,7 +607,7 @@ public class DebugIdsTest {
                     Response.newBuilder()
                         .addInsertion(
                             Insertion.newBuilder()
-                                .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId2"))))
+                                .setUserInfo(UserInfo.newBuilder().setAnonUserId("anonUserId2"))))
                 .build()));
   }
 
@@ -876,22 +876,22 @@ public class DebugIdsTest {
   }
 
   @Test
-  public void matchesImpression_matchLogUserId() {
-    DebugIds debugIds = DebugIds.builder().setLogUserIds(set("logUserId1")).build();
+  public void matchesImpression_matchAnonUserId() {
+    DebugIds debugIds = DebugIds.builder().setAnonUserIds(set("anonUserId1")).build();
     assertTrue(
         debugIds.matches(
             Impression.newBuilder()
-                .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId1"))
+                .setUserInfo(UserInfo.newBuilder().setAnonUserId("anonUserId1"))
                 .build()));
   }
 
   @Test
-  public void matchesImpression_noMatchLogUserId() {
-    DebugIds debugIds = DebugIds.builder().setLogUserIds(set("logUserId1")).build();
+  public void matchesImpression_noMatchAnonUserId() {
+    DebugIds debugIds = DebugIds.builder().setAnonUserIds(set("anonUserId1")).build();
     assertFalse(
         debugIds.matches(
             Impression.newBuilder()
-                .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId2"))
+                .setUserInfo(UserInfo.newBuilder().setAnonUserId("anonUserId2"))
                 .build()));
   }
 
@@ -980,22 +980,22 @@ public class DebugIdsTest {
   }
 
   @Test
-  public void matchesAction_matchLogUserId() {
-    DebugIds debugIds = DebugIds.builder().setLogUserIds(set("logUserId1")).build();
+  public void matchesAction_matchAnonUserId() {
+    DebugIds debugIds = DebugIds.builder().setAnonUserIds(set("anonUserId1")).build();
     assertTrue(
         debugIds.matches(
             Action.newBuilder()
-                .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId1"))
+                .setUserInfo(UserInfo.newBuilder().setAnonUserId("anonUserId1"))
                 .build()));
   }
 
   @Test
-  public void matchesAction_noMatchLogUserId() {
-    DebugIds debugIds = DebugIds.builder().setLogUserIds(set("logUserId1")).build();
+  public void matchesAction_noMatchAnonUserId() {
+    DebugIds debugIds = DebugIds.builder().setAnonUserIds(set("anonUserId1")).build();
     assertFalse(
         debugIds.matches(
             Action.newBuilder()
-                .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId2"))
+                .setUserInfo(UserInfo.newBuilder().setAnonUserId("anonUserId2"))
                 .build()));
   }
 

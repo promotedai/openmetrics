@@ -1,37 +1,63 @@
 package ai.promoted.metrics.logprocessor.common.job;
 
 import ai.promoted.metrics.logprocessor.common.aws.AwsSecretsManagerClient;
-import ai.promoted.metrics.logprocessor.common.functions.content.common.ContentAPILoader;
-import ai.promoted.metrics.logprocessor.common.functions.content.common.ContentAPILoaderImpl;
-import ai.promoted.metrics.logprocessor.common.functions.content.datastream.CachingContentDataStreamLookup;
+import ai.promoted.metrics.logprocessor.common.functions.content.common.ContentQueryClient;
+import ai.promoted.metrics.logprocessor.common.functions.content.common.ContentQueryClientImpl;
+import ai.promoted.metrics.logprocessor.common.functions.content.datastream.CachedContentLookupFunction;
+import ai.promoted.metrics.logprocessor.common.functions.content.datastream.ContentCacheSupplier;
 import ai.promoted.metrics.logprocessor.common.functions.content.datastream.NoContentDataStreamLookup;
-import ai.promoted.proto.event.TinyEvent;
+import ai.promoted.metrics.logprocessor.common.util.DebugIds;
+import ai.promoted.proto.event.TinyAction;
+import ai.promoted.proto.event.TinyInsertion;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.protobuf.GeneratedMessageV3;
 import java.time.Duration;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import org.apache.flink.streaming.api.datastream.AsyncDataStream;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.functions.async.AsyncFunction;
+import org.apache.flink.streaming.api.functions.async.AsyncRetryStrategy;
 import org.apache.flink.streaming.api.functions.async.RichAsyncFunction;
+import org.apache.flink.streaming.util.retryable.AsyncRetryStrategies;
+import org.apache.flink.streaming.util.retryable.RetryPredicates;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import picocli.CommandLine.Option;
 
 public class ContentApiSegment implements FlinkSegment {
   private static final Logger LOGGER = LogManager.getLogger(ContentApiSegment.class);
+  private final BaseFlinkJob baseFlinkJob;
+  private final RegionSegment regionSegment;
 
-  // Content Flags.
+  @Option(
+      names = {"--enableInsertionContentLookup"},
+      defaultValue = "false",
+      description = "Enables the Content lookup for Insertions. Default=false.")
+  public boolean enableInsertionContentLookup = false;
+
+  @Option(
+      names = {"--enableActionContentLookup"},
+      defaultValue = "false",
+      description = "Enables the Content lookup for Actions. Default=false.")
+  public boolean enableActionContentLookup = false;
+
+  @Option(
+      names = {"--enableDummyContentApiLoader"},
+      defaultValue = "false",
+      description =
+          "This can be enabled to create the Flink operator (with uids).  This will allow us to not get the drop state error when recovering from a savepoint. Default=false.")
+  public boolean enableDummyContentApiLoader = false;
+
   @FeatureFlag
   @Option(
       names = {"--contentApiRootUrl"},
@@ -47,16 +73,16 @@ public class ContentApiSegment implements FlinkSegment {
   public String contentApiKey = "";
 
   @Option(
-      names = {"--contentApiTimeout"},
-      defaultValue = "PT1S",
-      description = "Timeout or the Content API call. Default=PT1S.")
-  public Duration contentApiTimeout = Duration.parse("PT1S");
+      names = {"--contentLookupOperatorTimeout"},
+      defaultValue = "PT10S",
+      description = "Timeout for the RichAsyncFunction lookup. Default=PT10S.")
+  public Duration contentLookupOperatorTimeout = Duration.parse("PT10S");
 
   @Option(
-      names = {"--region"},
-      defaultValue = "",
-      description = "The AWS Region. Default=empty string.")
-  public String region = "";
+      names = {"--contentApiTimeout"},
+      defaultValue = "PT3S",
+      description = "Timeout for the Content API call. Default=PT3S.")
+  public Duration contentApiTimeout = Duration.parse("PT3S");
 
   @Option(
       names = {"--contentApiSecretName"},
@@ -65,6 +91,13 @@ public class ContentApiSegment implements FlinkSegment {
           "The AWS SecretsManager secret containing the Content API key.  Empty means do not use SecretsManager. Default=empty string.")
   public String contentApiSecretName = "";
 
+  @Option(
+      names = {"--contentApiSecretKey"},
+      defaultValue = "api-key",
+      description =
+          "The key in the AWS SecretsManager secret to use for the API key.  Default=api-key.")
+  public String contentApiSecretKey = "api-key";
+
   // TODO - future optimizations - we can split this into 3 flags to reduce the number of key
   // checks.
   // Splitting this would make the code more complex.
@@ -72,14 +105,14 @@ public class ContentApiSegment implements FlinkSegment {
       names = {"--contentIdFieldKeys"},
       description =
           "Which fields from Content CMS and Properties should be used for other content IDs.  The order impacts the inferred reference join ordering.  Defaults to empty set.")
-  public List<String> contentIdFieldKeys = new LinkedList<String>();
+  public List<String> contentIdFieldKeys = new LinkedList<>();
 
   @Option(
       names = {"--contentApiCapacity"},
-      defaultValue = "10",
+      defaultValue = "1000",
       description =
-          "Maximum capacity setting for Content API.  This probably gets operated per client instance.  Default=10.")
-  public int contentApiCapacity = 10;
+          "Maximum capacity setting for Content API.  This probably gets operated per client instance.  Default=1000.  Rough math is 100 batch size * ~10 concurrent RPCs.")
+  public int contentApiCapacity = 1000;
 
   @Option(
       names = {"--contentCacheMaxSize"},
@@ -88,24 +121,32 @@ public class ContentApiSegment implements FlinkSegment {
   public int contentCacheMaxSize = 50000;
 
   @Option(
-      names = {"--contentApiMaxAttempts"},
-      defaultValue = "3",
+      names = {"--contentCacheMaxBatchSize"},
+      defaultValue = "100",
       description =
-          "Maximum number of Content API attempts (1 + maxRetries) per content lookup.  Handles networking issuse. Default=3.")
-  public int contentApiMaxAttempts = 3;
+          "Maximum batch size when filling the content cache.  This should be less than Content API batch limit.  Default=100.")
+  public int contentCacheMaxBatchSize = 100;
 
   @Option(
-      names = {"--contentApiMaxAttemptsPerStatusCode"},
+      names = {"--contentLookupMaxAttempts"},
+      defaultValue = "5",
       description =
-          "Maximum number of Content API attempts (1 + maxRetries) per content lookup per http status code.  Default=No custom retries.")
-  Map<Integer, Integer> contentApiMaxAttemptsPerStatusCode = ImmutableMap.of();
+          "Maximum number of Content API lookup attempts.  Handles networking issue.  Default=5.")
+  public int contentLookupMaxAttempts = 5;
 
   @Option(
-      names = {"--contentApiMaxAllowedConsecutiveErrors"},
-      defaultValue = "0",
+      names = {"--contentLookupFixedDelay"},
+      defaultValue = "PT3S",
       description =
-          "Can be used to kill the overall job if there are too many consecutive Content API failures.  Default=0 (kill the job).")
-  public int contentApiMaxAllowedConsecutiveErrors = 0;
+          "Wait time when an Exception is encountered when doing Content API lookups. Default=PT3S.")
+  public Duration contentLookupFixedDelay = Duration.parse("PT3S");
+
+  @Option(
+      names = {"--contentCacheMaxBatchDelay"},
+      defaultValue = "PT0.25S",
+      description =
+          "Max time to wait to fill up a batch when populating the cache. Default=PT0.25S to trade off batching and caches.")
+  public Duration contentCacheMaxBatchDelay = Duration.parse("PT0.25S");
 
   @Option(
       names = {"--contentCacheExpiration"},
@@ -113,25 +154,21 @@ public class ContentApiSegment implements FlinkSegment {
       description = "Expiration time for content cache. Default=PT1D to capture global patterns.")
   public Duration contentCacheExpiration = Duration.parse("P1D");
 
-  @Option(
-      names = {"--enableDummyContentApiLoader"},
-      defaultValue = "false",
-      description =
-          "This can be enabled to create the Flink operator (with uids).  This will allow us to not get the drop state error when recovering from a savepoint. Default=false.")
-  public boolean enableDummyContentApiLoader = false;
+  public ContentQueryClient contentQueryClient;
 
-  RichAsyncFunction<TinyEvent, TinyEvent> overrideJoinOtherContentIds;
-  public ContentAPILoader contentApiLoader;
+  RichAsyncFunction<TinyInsertion, TinyInsertion> overrideTinyInsertionOtherContentIds;
+  RichAsyncFunction<TinyAction, TinyAction> overrideTinyActionOtherContentIds;
+  ContentCacheSupplier contentCacheSupplier;
+
+  @VisibleForTesting Supplier<String> getAwsSecret;
+
   private String secretStoreApiKey;
 
-  @VisibleForTesting
-  Supplier<String> getAwsSecret =
-      () -> AwsSecretsManagerClient.getSecretsValue(region, contentApiSecretName);
-
-  private final BaseFlinkJob baseFlinkJob;
-
-  public ContentApiSegment(BaseFlinkJob baseFlinkJob) {
+  public ContentApiSegment(BaseFlinkJob baseFlinkJob, RegionSegment regionSegment) {
     this.baseFlinkJob = baseFlinkJob;
+    this.regionSegment = regionSegment;
+    getAwsSecret =
+        () -> AwsSecretsManagerClient.getSecretsValue(regionSegment.region, contentApiSecretName);
   }
 
   @Override
@@ -139,20 +176,21 @@ public class ContentApiSegment implements FlinkSegment {
     // Most validation done in getJoinOtherContentIdsFunction().
     // if contentApiRootUrl is set, then contentIdFieldKeys need to be not null.
     if (enableDummyContentApiLoader) {
-      overrideJoinOtherContentIds = new NoContentDataStreamLookup();
+      overrideTinyInsertionOtherContentIds = new NoContentDataStreamLookup();
+      overrideTinyActionOtherContentIds = new NoContentDataStreamLookup();
       LOGGER.info("Setup NoContentLookup");
       return;
     }
-    if (!contentApiRootUrl.isEmpty() && contentApiLoader == null) {
+    if (!contentApiRootUrl.isEmpty() && contentQueryClient == null) {
+      Preconditions.checkArgument(
+          enableInsertionContentLookup || enableActionContentLookup,
+          "If --contentApiRootUrl is specified, then at least one of "
+              + "--enableInsertionContentLookup or --enableActionContentLookup should be specified");
+
       Preconditions.checkArgument(
           !contentApiRootUrl.isEmpty(), "--contentApiRootUrl needs to be set");
-      contentApiLoader =
-          new ContentAPILoaderImpl(
-              contentApiRootUrl,
-              getApiKey(),
-              contentApiMaxAttempts,
-              contentApiMaxAttemptsPerStatusCode,
-              contentApiMaxAllowedConsecutiveErrors);
+      contentQueryClient =
+          new ContentQueryClientImpl(contentApiRootUrl, getApiKey(), contentApiTimeout);
       LOGGER.info("Setup ContentApiLoader");
     } else {
       LOGGER.info("Did not setup ContentApiLoader.");
@@ -160,38 +198,102 @@ public class ContentApiSegment implements FlinkSegment {
   }
 
   @Override
-  public List<Class<? extends GeneratedMessageV3>> getProtoClasses() {
-    return ImmutableList.of();
+  public Set<Class<? extends GeneratedMessageV3>> getProtoClasses() {
+    return ImmutableSet.of();
   }
 
-  public boolean shouldJoinOtherContentIds() {
-    return overrideJoinOtherContentIds != null || contentApiLoader != null;
+  public boolean shouldJoinInsertionOtherContentIds() {
+    return overrideTinyInsertionOtherContentIds != null || enableInsertionContentLookup;
   }
 
-  public SingleOutputStreamOperator<TinyEvent> joinOtherContentIdsFromContentService(
-      DataStream<TinyEvent> in) {
-    return AsyncDataStream.unorderedWait(
+  public boolean shouldJoinActionOtherContentIds() {
+    return overrideTinyActionOtherContentIds != null || enableActionContentLookup;
+  }
+
+  /** Should be used by the insertion content join code. */
+  public SingleOutputStreamOperator<TinyInsertion> joinOtherInsertionContentIdsFromContentService(
+      DataStream<TinyInsertion> in) {
+    return AsyncDataStream.unorderedWaitWithRetry(
         in,
-        getJoinOtherContentIdsFunction(),
-        contentApiTimeout.toMillis(),
+        getTinyInsertionOtherContentIdsFunction(),
+        contentLookupOperatorTimeout.toMillis(),
         TimeUnit.MILLISECONDS,
-        contentApiCapacity);
+        contentApiCapacity,
+        getAsyncRetryStrategy());
+  }
+
+  /** Should be used by the action content join code. */
+  public SingleOutputStreamOperator<TinyAction> joinOtherActionContentIdsFromContentService(
+      DataStream<TinyAction> in) {
+    return AsyncDataStream.unorderedWaitWithRetry(
+        in,
+        getJoinActionOtherContentIdsFunction(),
+        contentLookupOperatorTimeout.toMillis(),
+        TimeUnit.MILLISECONDS,
+        contentApiCapacity,
+        getAsyncRetryStrategy());
+  }
+
+  private <T> AsyncRetryStrategy<T> getAsyncRetryStrategy() {
+    return new AsyncRetryStrategies.FixedDelayRetryStrategyBuilder<T>(
+            contentLookupMaxAttempts, contentLookupFixedDelay.toMillis())
+        // We always output from the function so retry if empty.
+        // .ifResult(RetryPredicates.EMPTY_RESULT_PREDICATE)
+        .ifException(RetryPredicates.HAS_EXCEPTION_PREDICATE)
+        .build();
   }
 
   /**
    * Returns a new CachingContentLookup so we can be sure we'll have separate caches for each
    * content type.
    */
-  AsyncFunction<TinyEvent, TinyEvent> getJoinOtherContentIdsFunction() {
-    if (overrideJoinOtherContentIds != null) {
-      return overrideJoinOtherContentIds;
+  AsyncFunction<TinyInsertion, TinyInsertion> getTinyInsertionOtherContentIdsFunction() {
+    if (overrideTinyInsertionOtherContentIds != null) {
+      return overrideTinyInsertionOtherContentIds;
     }
-    return new CachingContentDataStreamLookup(
-        contentCacheMaxSize,
-        contentCacheExpiration,
-        contentApiLoader,
-        contentIdFieldKeys,
-        baseFlinkJob.getDebugIds());
+    DebugIds debugIds = baseFlinkJob.getDebugIds();
+    return new CachedContentLookupFunction<>(
+        getContentCacheSupplier(),
+        TinyInsertion::toBuilder,
+        TinyInsertion.Builder::build,
+        insertion -> insertion.getCore().getContentId(),
+        (builder, key) -> builder.getCore().containsOtherContentIds(key),
+        (builder, entry) ->
+            builder.getCoreBuilder().putOtherContentIds(entry.getKey(), entry.getValue()),
+        debugIds::matches);
+  }
+
+  /**
+   * Returns a new CachingContentLookup so we can be sure we'll have separate caches for each
+   * content type.
+   */
+  AsyncFunction<TinyAction, TinyAction> getJoinActionOtherContentIdsFunction() {
+    if (overrideTinyActionOtherContentIds != null) {
+      return overrideTinyActionOtherContentIds;
+    }
+    DebugIds debugIds = baseFlinkJob.getDebugIds();
+    return new CachedContentLookupFunction<>(
+        getContentCacheSupplier(),
+        TinyAction::toBuilder,
+        TinyAction.Builder::build,
+        TinyAction::getContentId,
+        TinyAction.Builder::containsOtherContentIds,
+        (builder, entry) -> builder.putOtherContentIds(entry.getKey(), entry.getValue()),
+        debugIds::matches);
+  }
+
+  ContentCacheSupplier getContentCacheSupplier() {
+    if (contentCacheSupplier == null) {
+      contentCacheSupplier =
+          new ContentCacheSupplier(
+              contentCacheMaxSize,
+              contentCacheMaxBatchSize,
+              contentCacheMaxBatchDelay,
+              contentCacheExpiration,
+              contentQueryClient,
+              contentIdFieldKeys);
+    }
+    return contentCacheSupplier;
   }
 
   @VisibleForTesting
@@ -199,12 +301,13 @@ public class ContentApiSegment implements FlinkSegment {
     String apiKey;
     if (contentApiKey.isEmpty() && !contentApiSecretName.isEmpty()) {
       if (secretStoreApiKey == null) {
-        Preconditions.checkArgument(!region.isEmpty(), "--region needs to be specified");
+        Preconditions.checkArgument(
+            !regionSegment.region.isEmpty(), "--region needs to be specified");
         String secretsJson = getAwsSecret.get();
         ObjectMapper mapper = new ObjectMapper();
         try {
           Map<String, Object> jsonMap = mapper.readValue(secretsJson, Map.class);
-          secretStoreApiKey = (String) jsonMap.getOrDefault("api-key", "");
+          secretStoreApiKey = (String) jsonMap.getOrDefault(contentApiSecretKey, "");
         } catch (JsonProcessingException e) {
           throw new RuntimeException(e);
         }

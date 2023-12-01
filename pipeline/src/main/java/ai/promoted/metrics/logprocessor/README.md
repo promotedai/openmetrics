@@ -59,7 +59,7 @@ We have very little validation on incoming events.  We started adding some to th
 The validation structure will change a lot in the future.  We want to pull the validation to a separate job and write validated events to a different Kafka topic.  We will change the format of the table after working through future requirements.
 
 ### Sinks
-1. S3 File Sink (`s3a://ccc-dev-event-logs/raw*`)
+1. S3 File Sink (`s3a://hipcamp-dev-event-logs/raw*`)
 
 ### Implementation
 It's simply connecting the Kafka input source to a respective S3 file sink.
@@ -78,7 +78,7 @@ For now, it's the most complicated pipeline, but we have the groundwork in place
 1. Single Metrics Event API Kafka topic
 
 ### Sinks
-1. S3 File Sink (`s3a://ccc-dev-event-logs/raw*`)
+1. S3 File Sink (`s3a://hipcamp-dev-event-logs/raw*`)
 
 ### Implementation
 

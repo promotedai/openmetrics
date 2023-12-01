@@ -101,25 +101,25 @@ public final class LogRequestIterator implements Iterator<LogRequest> {
   public static final long PLATFORM_ID = 1L;
   private final LogRequestIteratorOptions options;
   private final ContentDB contentDB;
-
-  /* nextState contains the next state to process `next()`.  If null, check stateHeap. */
-  @Nullable private State nextState;
   /* Future events are ordered using a heap.  State might contain Runnables that add more to stateHeap.
      It's ordered by time and then by a index to make a more consistent sort.
   */
   private final MinMaxPriorityQueue<State> stateHeap =
       MinMaxPriorityQueue.<State>orderedBy(
-              Ordering.<State>compound(
+              Ordering.compound(
                   ImmutableList.of(
                       Ordering.natural().onResultOf(state -> state.time()),
                       Ordering.natural().onResultOf(state -> state.index()))))
           .create();
-  private int nextStateIndex;
   // The Cart state is not in sync with stateHeap.
   // TODO - synchronize it.  It'd probably mean keeping track of updates with timestamps.  The
   // complexity isn't
   // worth it right now.
-  private Map<String, Cart> logUserIdToCart = new HashMap<>();
+  // This is currently keyed by a forgettable user ID (anonUserId or logUserId).
+  private final Map<String, Cart> anyUserIdToCart = new HashMap<>();
+  /* nextState contains the next state to process `next()`.  If null, check stateHeap. */
+  @Nullable private State nextState;
+  private int nextStateIndex;
 
   public LogRequestIterator(LogRequestIteratorOptions.Builder optionsBuilder) {
     this(optionsBuilder.build());
@@ -133,6 +133,55 @@ public final class LogRequestIterator implements Iterator<LogRequest> {
     this.options = options;
     this.contentDB = contentDB;
     addUsersToHeap();
+  }
+
+  private static boolean isMissingEvent(float missingRate, String eventId, String additionalHash) {
+    return matchesRateOption(missingRate, eventId, additionalHash);
+  }
+
+  public static boolean matchesRateOption(float rate, String id, String additionalHash) {
+    return new Random(hash(id + additionalHash)).nextFloat() < rate;
+  }
+
+  private static int hash(String value) {
+    return value.hashCode() * 31 + 17;
+  }
+
+  /** Performs modulo but shifts negative values to be positive. */
+  private static int modAbs(int num, int modulo) {
+    int value = num % modulo;
+    if (value < 0) {
+      value += modulo;
+    }
+    return value;
+  }
+
+  /**
+   * Returns a fraction of {@code size} by using {@code rate}. Uses {@code id} to deterministically
+   * do ceiling or floor at a {@code rate}.
+   */
+  public static int fromRateToCount(float rate, int size, String id, String additionalHash) {
+    if (matchesRateOption(rate, id, additionalHash)) {
+      // Ceiling.
+      return (int) Math.ceil(rate * size);
+    } else {
+      // Floor.
+      return (int) Math.floor(rate * size);
+    }
+  }
+
+  private static long toContentIdLong(String contentId) {
+    return Long.parseLong(contentId.substring(contentId.lastIndexOf('-') + 1));
+  }
+
+  private static String getAnyLogUserId(UserInfo userInfo) {
+    if (!userInfo.getAnonUserId().isEmpty()) {
+      return userInfo.getAnonUserId();
+    }
+    if (!userInfo.getLogUserId().isEmpty()) {
+      return userInfo.getLogUserId();
+    }
+    return userInfo.getUserId();
   }
 
   public boolean hasNext() {
@@ -189,25 +238,36 @@ public final class LogRequestIterator implements Iterator<LogRequest> {
 
   private void addUserToHeap() {
     String userId = options.userUuid();
-    String logUserId = options.logUserUuid(userId);
+    String anonUserId = options.anonUserUuid(userId);
 
     Instant now = options.now();
     Instant eventApiTimestamp = options.eventApiTimestamp();
+    UserInfo.Builder userInfoBuilder = UserInfo.newBuilder();
+    if (options.writeAnonUserId()) {
+      userInfoBuilder.setAnonUserId(anonUserId);
+    }
+    if (options.writeLogUserId()) {
+      // In earlier versions, platforms are writing their anonUserId to the logUserId field.
+      userInfoBuilder.setLogUserId(anonUserId);
+    }
+    if (options.writeUserId()) {
+      userInfoBuilder.setUserId(userId);
+    }
+    UserInfo userInfo = userInfoBuilder.build();
+    Timing timing = createTiming(eventApiTimestamp);
+
     LogRequest.Builder builder =
         LogRequest.newBuilder()
             .setPlatformId(PLATFORM_ID)
-            .setUserInfo(UserInfo.newBuilder().setUserId(userId).setLogUserId(logUserId))
-            .setTiming(createTiming(eventApiTimestamp))
-            .addUser(
-                User.newBuilder()
-                    .setUserInfo(UserInfo.newBuilder().setUserId(userId).setLogUserId(logUserId))
-                    .setTiming(createTiming(eventApiTimestamp)));
+            .setUserInfo(userInfo)
+            .setTiming(timing)
+            .addUser(User.newBuilder().setUserInfo(userInfo).setTiming(timing));
     final LogRequest external = builder.build();
     if (options.writeUsers()) {
       addToHeap(now, external);
     }
     addToHeap(now, () -> addCohortMembershipsToHeap(external, userId));
-    addToHeap(now, () -> addSessionsToHeap(external, userId, logUserId));
+    addToHeap(now, () -> addSessionsToHeap(external, userInfo));
   }
 
   private void addCohortMembershipsToHeap(LogRequest request, String userId) {
@@ -228,17 +288,16 @@ public final class LogRequestIterator implements Iterator<LogRequest> {
     addToHeap(delay(now, Duration.ofSeconds(1)), external);
   }
 
-  private void addSessionsToHeap(LogRequest request, String userId, String logUserId) {
-    IntStream.range(0, options.sessionsPerUser())
-        .forEach(i -> addSessionToHeap(request, userId, logUserId));
+  private void addSessionsToHeap(LogRequest request, UserInfo userInfo) {
+    IntStream.range(0, options.sessionsPerUser()).forEach(i -> addSessionToHeap(request, userInfo));
   }
 
-  private void addSessionToHeap(LogRequest request, String userId, String logUserId) {
+  private void addSessionToHeap(LogRequest request, UserInfo userInfo) {
     Instant now = options.now();
     Instant eventApiTimestamp = options.eventApiTimestamp();
     LogRequest.Builder builder =
         toCommonFieldsBuilder(request)
-            .setUserInfo(UserInfo.newBuilder().setUserId(userId).setLogUserId(logUserId))
+            .setUserInfo(userInfo)
             .setTiming(createTiming(eventApiTimestamp));
     final String sessionId = options.sessionUuid();
     builder.addSessionProfile(
@@ -248,6 +307,7 @@ public final class LogRequestIterator implements Iterator<LogRequest> {
                 SessionProfile.newBuilder()
                     .setSessionId(sessionId)
                     .setTiming(createTiming(eventApiTimestamp))));
+
     builder.addSession(
         options
             .sessionTransform()
@@ -255,7 +315,7 @@ public final class LogRequestIterator implements Iterator<LogRequest> {
                 Session.newBuilder()
                     .setSessionId(sessionId)
                     // TODO - use a separate log.
-                    .setUserInfo(UserInfo.newBuilder().setLogUserId(logUserId))
+                    .setUserInfo(userInfo.toBuilder().clearUserId().build())
                     .setTiming(createTiming(eventApiTimestamp))));
     // TODO - change delay per i.
     Instant nextTime = delay(now, Duration.ofSeconds(1));
@@ -380,6 +440,20 @@ public final class LogRequestIterator implements Iterator<LogRequest> {
   // TODO - change the response insertions in shadow traffic so they are different than SDK response
   // insertions.
   private void addDeliveryLogToHeap(
+      LogRequest logRequest,
+      String viewId,
+      ImmutableList<? extends Content> contents,
+      ImmutableList<FakeInsertionSurface> requestInsertionSurfaces,
+      int index) {
+    boolean redundantInsertions =
+        matchesRateOption(options.redundantInsertionRate(), viewId, "addDeliveryLogToHeap");
+    int numDeliveryLogs = redundantInsertions ? 2 : 1;
+    for (int i = 0; i < numDeliveryLogs; i++) {
+      addInnerDeliveryLogToHeap(logRequest, viewId, contents, requestInsertionSurfaces, index);
+    }
+  }
+
+  private void addInnerDeliveryLogToHeap(
       LogRequest logRequest,
       String viewId,
       ImmutableList<? extends Content> contents,
@@ -676,8 +750,8 @@ public final class LogRequestIterator implements Iterator<LogRequest> {
 
       // Add cart
       Cart cart =
-          logUserIdToCart.getOrDefault(
-              request.getUserInfo().getLogUserId(), Cart.getDefaultInstance());
+          anyUserIdToCart.getOrDefault(
+              getAnyLogUserId(request.getUserInfo()), Cart.getDefaultInstance());
       long quantity = 1 + modAbs(hash(addToCartContent.getContentId()), 4);
       long priceMicrosPerUnit = 1000000 * (1 + modAbs(hash(addToCartContent.getContentId()), 5));
       cart =
@@ -691,7 +765,7 @@ public final class LogRequestIterator implements Iterator<LogRequest> {
                               .setCurrencyCode(CurrencyCode.USD)
                               .setAmountMicros(priceMicrosPerUnit)))
               .build();
-      logUserIdToCart.put(request.getUserInfo().getLogUserId(), cart);
+      anyUserIdToCart.put(getAnyLogUserId(request.getUserInfo()), cart);
     }
   }
 
@@ -714,7 +788,7 @@ public final class LogRequestIterator implements Iterator<LogRequest> {
       if (!options.setupForInferredIds()) {
         action.setImpressionId(content.impressionId());
       }
-      Cart cart = logUserIdToCart.get(request.getUserInfo().getLogUserId());
+      Cart cart = anyUserIdToCart.get(getAnyLogUserId(request.getUserInfo()));
       if (cart != null) {
         action.setCart(cart);
       }
@@ -757,7 +831,7 @@ public final class LogRequestIterator implements Iterator<LogRequest> {
       if (!options.setupForInferredIds()) {
         action.setImpressionId(content.impressionId());
       }
-      Cart cart = logUserIdToCart.get(request.getUserInfo().getLogUserId());
+      Cart cart = anyUserIdToCart.get(getAnyLogUserId(request.getUserInfo()));
       if (cart != null) {
         action.setCart(cart);
       }
@@ -974,10 +1048,14 @@ public final class LogRequestIterator implements Iterator<LogRequest> {
   }
 
   private Timing createTiming(Instant timestamp) {
-    return Timing.newBuilder()
-        .setClientLogTimestamp(timestamp.toEpochMilli())
-        .setEventApiTimestamp(timestamp.toEpochMilli())
-        .build();
+    Timing.Builder builder =
+        Timing.newBuilder()
+            .setClientLogTimestamp(timestamp.toEpochMilli())
+            .setEventApiTimestamp(timestamp.toEpochMilli());
+    if (options.logTimestamp()) {
+      builder.setLogTimestamp(timestamp.toEpochMilli());
+    }
+    return builder.build();
   }
 
   private void addToHeap(Instant time, LogRequest external) {
@@ -990,45 +1068,6 @@ public final class LogRequestIterator implements Iterator<LogRequest> {
     int index = nextStateIndex;
     nextStateIndex++;
     stateHeap.add(State.create(time, index, runnable));
-  }
-
-  private static boolean isMissingEvent(float missingRate, String eventId, String additionalHash) {
-    return matchesRateOption(missingRate, eventId, additionalHash);
-  }
-
-  public static boolean matchesRateOption(float rate, String id, String additionalHash) {
-    return new Random(hash(id + additionalHash)).nextFloat() < rate;
-  }
-
-  private static int hash(String value) {
-    return value.hashCode() * 31 + 17;
-  }
-
-  /** Performs modulo but shifts negative values to be positive. */
-  private static int modAbs(int num, int modulo) {
-    int value = num % modulo;
-    if (value < 0) {
-      value += modulo;
-    }
-    return value;
-  }
-
-  /**
-   * Returns a fraction of {@code size} by using {@code rate}. Uses {@code id} to deterministically
-   * do ceiling or floor at a {@code rate}.
-   */
-  public static int fromRateToCount(float rate, int size, String id, String additionalHash) {
-    if (matchesRateOption(rate, id, additionalHash)) {
-      // Ceiling.
-      return (int) Math.ceil(rate * size);
-    } else {
-      // Floor.
-      return (int) Math.floor(rate * size);
-    }
-  }
-
-  private static long toContentIdLong(String contentId) {
-    return Long.parseLong(contentId.substring(contentId.lastIndexOf('-') + 1));
   }
 
   // TODO - make some of this logic optional so we can fetch from the DB.

@@ -2,11 +2,14 @@ package ai.promoted.metrics.logprocessor.job.join;
 
 import ai.promoted.metrics.logprocessor.common.functions.inferred.MergeImpressionDetails;
 import ai.promoted.metrics.logprocessor.common.util.DeliveryLogUtil;
+import ai.promoted.proto.common.Properties;
 import ai.promoted.proto.delivery.DeliveryLog;
 import ai.promoted.proto.delivery.Insertion;
 import ai.promoted.proto.delivery.Request;
 import ai.promoted.proto.event.CombinedDeliveryLog;
+import ai.promoted.proto.event.TinyCommonInfo;
 import ai.promoted.proto.event.TinyDeliveryLog;
+import ai.promoted.proto.event.TinyInsertionCore;
 import com.google.common.collect.ImmutableMap;
 import java.util.HashMap;
 import java.util.List;
@@ -34,11 +37,14 @@ final class ToTinyDeliveryLog implements MapFunction<CombinedDeliveryLog, TinyDe
     Request request = deliveryLog.getRequest();
     TinyDeliveryLog.Builder builder =
         TinyDeliveryLog.newBuilder()
-            .setPlatformId(DeliveryLogUtil.getPlatformId(combinedDeliveryLog))
-            .setLogUserId(request.getUserInfo().getLogUserId())
-            .setLogTimestamp(request.getTiming().getLogTimestamp())
+            .setCommon(
+                TinyCommonInfo.newBuilder()
+                    .setPlatformId(DeliveryLogUtil.getPlatformId(combinedDeliveryLog))
+                    .setAnonUserId(request.getUserInfo().getAnonUserId())
+                    .setEventApiTimestamp(request.getTiming().getEventApiTimestamp()))
             .setViewId(request.getViewId())
-            .setRequestId(request.getRequestId());
+            .setRequestId(request.getRequestId())
+            .setPagingId(deliveryLog.getResponse().getPagingInfo().getPagingId());
 
     // OPTIMIZATION: keep empty when we don't need to look up Request Insertions.
     Map<String, Insertion> contentIdToRequestInsertion;
@@ -58,21 +64,23 @@ final class ToTinyDeliveryLog implements MapFunction<CombinedDeliveryLog, TinyDe
     deliveryLog.getResponse().getInsertionList().stream()
         .forEach(
             responseInsertion -> {
-              TinyDeliveryLog.TinyInsertion.Builder tinyInsertion =
+              TinyInsertionCore.Builder tinyInsertion =
                   builder
                       .addResponseInsertionBuilder()
                       .setInsertionId(responseInsertion.getInsertionId())
-                      .setContentId(responseInsertion.getContentId());
+                      .setContentId(responseInsertion.getContentId())
+                      .setPosition(responseInsertion.getPosition());
               if (otherContentIdsConverter.hasKeys()) {
                 // RequestInsertions properties are higher priority than Request properties.
                 tinyInsertion.putAllOtherContentIds(requestOtherContentIds);
                 Insertion requestInsertion =
                     contentIdToRequestInsertion.get(responseInsertion.getContentId());
-                if (requestInsertion != null && requestInsertion.hasProperties()) {
-                  addOtherContentIdsFromProperties(tinyInsertion, requestInsertion);
+                if (request != null && request.hasProperties()) {
+                  addOtherContentIdsFromProperties(tinyInsertion, request.getProperties());
                 }
-                if (request.hasProperties()) {
-                  addOtherContentIdsFromProperties(tinyInsertion, requestInsertion);
+                // Put after so Request.insertion.properties override Request.properties.
+                if (requestInsertion != null && requestInsertion.hasProperties()) {
+                  addOtherContentIdsFromProperties(tinyInsertion, requestInsertion.getProperties());
                 }
               }
             });
@@ -82,9 +90,8 @@ final class ToTinyDeliveryLog implements MapFunction<CombinedDeliveryLog, TinyDe
 
   // For now, we only support 1 level.
   private void addOtherContentIdsFromProperties(
-      TinyDeliveryLog.TinyInsertion.Builder tinyInsertion, Insertion requestInsertion) {
-    otherContentIdsConverter.putFromProperties(
-        tinyInsertion::putOtherContentIds, requestInsertion.getProperties());
+      TinyInsertionCore.Builder tinyInsertion, Properties properties) {
+    otherContentIdsConverter.putFromProperties(tinyInsertion::putOtherContentIds, properties);
   }
 
   private Map<String, Insertion> getContentIdToRequestInsertion(Request request) {
@@ -96,7 +103,7 @@ final class ToTinyDeliveryLog implements MapFunction<CombinedDeliveryLog, TinyDe
                 (insertion1, insertion2) -> {
                   // If we see duplicate contentIds, we need to verify how duplicate contentIds
                   // work.
-                  LOGGER.error(
+                  LOGGER.warn(
                       "Multiple request insertions with the same contentId, {}, found on Request={}",
                       insertion1.getContentId(),
                       request);

@@ -1,5 +1,6 @@
 package ai.promoted.metrics.logprocessor.common.functions;
 
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableToLongFunction;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -20,7 +21,6 @@ public final class DateHourBucketAssigner<T> extends BasePathBucketAssigner<T> {
   private static final Logger LOGGER = LogManager.getLogger(DateHourBucketAssigner.class);
   private static final DateTimeFormatter HOUR_FORMAT = DateTimeFormatter.ofPattern("HH");
   private static final Random RANDOM = new Random();
-  ;
   private static final float LOG_RATE = 0.01f;
 
   private final SerializableToLongFunction<T> getTimestampLong;

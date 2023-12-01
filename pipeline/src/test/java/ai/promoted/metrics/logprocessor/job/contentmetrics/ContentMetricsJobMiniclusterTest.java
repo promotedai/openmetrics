@@ -8,15 +8,20 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 import ai.promoted.metrics.logprocessor.common.fakedatagenerator.IncrementingUUIDSupplier;
 import ai.promoted.metrics.logprocessor.common.fakedatagenerator.LogRequestFactory;
-import ai.promoted.metrics.logprocessor.common.job.MetricsApiKafkaSource;
+import ai.promoted.metrics.logprocessor.common.job.FlatOutputKafkaSourceProvider;
+import ai.promoted.metrics.logprocessor.common.job.ValidatedDataSourceProvider;
 import ai.promoted.metrics.logprocessor.common.job.testing.BaseJobMiniclusterTest;
 import ai.promoted.metrics.logprocessor.common.table.Tables;
 import ai.promoted.metrics.logprocessor.common.testing.MiniClusterExtension;
 import ai.promoted.proto.common.Timing;
 import ai.promoted.proto.delivery.Insertion;
-import ai.promoted.proto.event.JoinedEvent;
+import ai.promoted.proto.event.Action;
+import ai.promoted.proto.event.AttributedAction;
+import ai.promoted.proto.event.Impression;
 import ai.promoted.proto.event.JoinedIdentifiers;
+import ai.promoted.proto.event.JoinedImpression;
 import ai.promoted.proto.event.LogRequest;
+import ai.promoted.proto.event.View;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
@@ -28,9 +33,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Predicate;
@@ -38,10 +41,12 @@ import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import org.apache.flink.api.common.RuntimeExecutionMode;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
-import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.api.TableResult;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.apache.flink.types.Row;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
@@ -80,17 +85,9 @@ public class ContentMetricsJobMiniclusterTest extends BaseJobMiniclusterTest<Con
                         })));
   }
 
-  private static <K> Map<Integer, K> toIndexMap(List<K> rows) {
-    Map<Integer, K> indexMap = new HashMap<>();
-    for (int i = 0; i < rows.size(); i++) {
-      indexMap.put(i, rows.get(i));
-    }
-    return indexMap;
-  }
-
-  private static JoinedEvent createTestJoinedImpression(
+  private static JoinedImpression createTestJoinedImpression(
       String impressionId, LocalDateTime time, String contentId, long position) {
-    return JoinedEvent.newBuilder()
+    return JoinedImpression.newBuilder()
         .setIds(
             JoinedIdentifiers.newBuilder().setPlatformId(1L).setImpressionId(impressionId).build())
         .setTiming(Timing.newBuilder().setEventApiTimestamp(toEpochMilli(time)))
@@ -114,6 +111,14 @@ public class ContentMetricsJobMiniclusterTest extends BaseJobMiniclusterTest<Con
     return array != null ? array : new String[0];
   }
 
+  private ValidatedDataSourceProvider fakeValidatedDataSourceProvider;
+  private FlatOutputKafkaSourceProvider fakeFlatOutputKafkaSourceProvider;
+
+  @BeforeEach
+  public void setUp() {
+    super.setUp();
+  }
+
   protected RuntimeExecutionMode getRuntimeMode() {
     return RuntimeExecutionMode.STREAMING;
   }
@@ -131,8 +136,79 @@ public class ContentMetricsJobMiniclusterTest extends BaseJobMiniclusterTest<Con
     return job;
   }
 
+  private void setupStreams(
+      List<LogRequest> logRequests, List<JoinedImpression> joinedImpressions) {
+    List<View> view = LogRequestFactory.pushDownToViews(logRequests);
+    List<Impression> impression = LogRequestFactory.pushDownToImpressions(logRequests);
+    List<Action> action = LogRequestFactory.pushDownToActions(logRequests);
+
+    SingleOutputStreamOperator<View> viewStream =
+        fromItems(env, "view", view, TypeInformation.of(View.class), View::getTiming);
+    SingleOutputStreamOperator<Impression> impressionStream =
+        fromItems(
+            env,
+            "impression",
+            impression,
+            TypeInformation.of(Impression.class),
+            Impression::getTiming);
+    SingleOutputStreamOperator<Action> actionStream =
+        fromItems(env, "action", action, TypeInformation.of(Action.class), Action::getTiming);
+    SingleOutputStreamOperator<JoinedImpression> joinedImpressionStream =
+        fromItems(
+            env,
+            "joined-impression",
+            joinedImpressions,
+            TypeInformation.of(JoinedImpression.class),
+            JoinedImpression::getTiming);
+    // Not used by the job operators but the MetricsTableCatalog code sets it up.
+    SingleOutputStreamOperator<AttributedAction> attributedActionStream =
+        fromItems(
+            env,
+            "attributed-action",
+            ImmutableList.of(),
+            TypeInformation.of(AttributedAction.class),
+            getTestWatermarkStrategy(ignored -> 0L));
+    fakeFlatOutputKafkaSourceProvider =
+        new FlatOutputKafkaSourceProvider() {
+          @Override
+          public SingleOutputStreamOperator<JoinedImpression> getJoinedImpressionSource(
+              StreamExecutionEnvironment env, String consumerGroupId) {
+            return joinedImpressionStream;
+          }
+
+          @Override
+          public SingleOutputStreamOperator<AttributedAction> getAttributedActionSource(
+              StreamExecutionEnvironment env, String consumerGroupId) {
+            return attributedActionStream;
+          }
+        };
+    fakeValidatedDataSourceProvider =
+        new ValidatedDataSourceProvider() {
+          @Override
+          public SingleOutputStreamOperator<View> getViewSource(
+              StreamExecutionEnvironment env, String consumerGroupId) {
+            return viewStream;
+          }
+
+          @Override
+          public SingleOutputStreamOperator<Impression> getImpressionSource(
+              StreamExecutionEnvironment env, String consumerGroupId) {
+            return impressionStream;
+          }
+
+          @Override
+          public SingleOutputStreamOperator<Action> getActionSource(
+              StreamExecutionEnvironment env, String consumerGroupId) {
+            return actionStream;
+          }
+        };
+  }
+
   @Test
   void testSimple() throws Exception {
+    ContentMetricsJob job = createJob();
+    job.outputParquet = true;
+
     LocalDateTime time = LocalDateTime.of(2022, 10, 1, 22, 49, 11);
     List<LogRequest> inputLogRequests =
         LogRequestFactory.createLogRequests(
@@ -142,24 +218,16 @@ public class ContentMetricsJobMiniclusterTest extends BaseJobMiniclusterTest<Con
                 .setNavigateCheckoutRate(1.0f)
                 .setNavigateAddToCartRate(1.0f)
                 .setCheckoutPurchaseRate(1.0f));
+    List<JoinedImpression> joinedImpressions =
+        ImmutableList.of(createTestJoinedImpression("imp1", time, "i-1-1", 5));
+    setupStreams(inputLogRequests, joinedImpressions);
 
-    ContentMetricsJob job = createJob();
-    job.outputParquet = true;
-    // Manually set the log stream underneath for processing.
-    MetricsApiKafkaSource.SplitSources splitLogRequest =
-        job.metricsApiKafkaSource.splitSources(
-            fromItems(env, "logRequest", inputLogRequests, LogRequest::getTiming));
     StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
     Tables.createCatalogAndDatabase(tableEnv);
 
-    DataStream<JoinedEvent> joinedImpression =
-        fromItems(
-            env,
-            "joined-impression",
-            ImmutableList.of(createTestJoinedImpression("imp1", time, "i-1-1", 5)),
-            TypeInformation.of(JoinedEvent.class),
-            JoinedEvent::getTiming);
-    waitForDone(job.createOperators(tableEnv, splitLogRequest, joinedImpression));
+    waitForDone(
+        job.createOperators(
+            env, tableEnv, fakeValidatedDataSourceProvider, fakeFlatOutputKafkaSourceProvider));
     TableResult hourlyContentMetrics =
         tableEnv.executeSql("SELECT * FROM `hourly_content_metrics_view`");
 
@@ -180,6 +248,9 @@ public class ContentMetricsJobMiniclusterTest extends BaseJobMiniclusterTest<Con
   // More data and duplicates.
   @Test
   void testComplex() throws Exception {
+    ContentMetricsJob job = createJob();
+    job.outputParquet = true;
+
     LocalDateTime time1 = LocalDateTime.of(2022, 10, 1, 22, 49, 11);
     List<LogRequest> inputLogRequests =
         ImmutableList.<LogRequest>builder()
@@ -246,26 +317,17 @@ public class ContentMetricsJobMiniclusterTest extends BaseJobMiniclusterTest<Con
                         .setNavigateAddToCartRate(0.5f)
                         .setCheckoutPurchaseRate(0.75f)))
             .build();
-
-    ContentMetricsJob job = createJob();
-    job.outputParquet = true;
-    // Manually set the log stream underneath for processing.
-    MetricsApiKafkaSource.SplitSources splitLogRequest =
-        job.metricsApiKafkaSource.splitSources(
-            fromItems(env, "logRequest", inputLogRequests, LogRequest::getTiming));
+    List<JoinedImpression> joinedImpressions =
+        ImmutableList.of(
+            createTestJoinedImpression("imp1", time1, "i-1-1", 5),
+            createTestJoinedImpression("imp2", time1, "i-1-1", 3));
+    setupStreams(inputLogRequests, joinedImpressions);
     StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
     Tables.createCatalogAndDatabase(tableEnv);
 
-    DataStream<JoinedEvent> joinedImpression =
-        fromItems(
-            env,
-            "joined-impression",
-            ImmutableList.of(
-                createTestJoinedImpression("imp1", time1, "i-1-1", 5),
-                createTestJoinedImpression("imp2", time1, "i-1-1", 3)),
-            TypeInformation.of(JoinedEvent.class),
-            JoinedEvent::getTiming);
-    waitForDone(job.createOperators(tableEnv, splitLogRequest, joinedImpression));
+    waitForDone(
+        job.createOperators(
+            env, tableEnv, fakeValidatedDataSourceProvider, fakeFlatOutputKafkaSourceProvider));
 
     TableResult hourlyContentMetrics =
         tableEnv.executeSql("SELECT * FROM `hourly_content_metrics_view`");
@@ -305,6 +367,10 @@ public class ContentMetricsJobMiniclusterTest extends BaseJobMiniclusterTest<Con
 
   @Test
   void testCsv() throws Exception {
+    ContentMetricsJob job = createJob();
+    job.outputParquet = true;
+    job.outputCsv = true;
+
     LocalDateTime time = LocalDateTime.of(2022, 10, 1, 22, 49, 11);
     List<LogRequest> inputLogRequests =
         LogRequestFactory.createLogRequests(
@@ -314,25 +380,16 @@ public class ContentMetricsJobMiniclusterTest extends BaseJobMiniclusterTest<Con
                 .setNavigateCheckoutRate(1.0f)
                 .setNavigateAddToCartRate(1.0f)
                 .setCheckoutPurchaseRate(1.0f));
+    List<JoinedImpression> joinedImpressions =
+        ImmutableList.of(createTestJoinedImpression("imp1", time, "i-1-1", 5));
+    setupStreams(inputLogRequests, joinedImpressions);
 
-    ContentMetricsJob job = createJob();
-    job.outputParquet = true;
-    job.outputCsv = true;
-    // Manually set the log stream underneath for processing.
-    MetricsApiKafkaSource.SplitSources splitLogRequest =
-        job.metricsApiKafkaSource.splitSources(
-            fromItems(env, "logRequest", inputLogRequests, LogRequest::getTiming));
     StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
     Tables.createCatalogAndDatabase(tableEnv);
 
-    DataStream<JoinedEvent> joinedImpression =
-        fromItems(
-            env,
-            "joined-impression",
-            ImmutableList.of(createTestJoinedImpression("imp1", time, "i-1-1", 5)),
-            TypeInformation.of(JoinedEvent.class),
-            JoinedEvent::getTiming);
-    waitForDone(job.createOperators(tableEnv, splitLogRequest, joinedImpression));
+    waitForDone(
+        job.createOperators(
+            env, tableEnv, fakeValidatedDataSourceProvider, fakeFlatOutputKafkaSourceProvider));
     TableResult hourlyContentMetrics =
         tableEnv.executeSql("SELECT * FROM `hourly_content_metrics_view`");
 
@@ -369,6 +426,10 @@ public class ContentMetricsJobMiniclusterTest extends BaseJobMiniclusterTest<Con
 
   @Test
   void testCumulatedJSON() throws Exception {
+    ContentMetricsJob job = createJob();
+    job.outputParquet = true;
+    job.outputCumulatedFiles = true;
+
     LocalDateTime time = LocalDateTime.of(2022, 10, 1, 22, 49, 11);
     List<LogRequest> inputLogRequests =
         LogRequestFactory.createLogRequests(
@@ -378,26 +439,16 @@ public class ContentMetricsJobMiniclusterTest extends BaseJobMiniclusterTest<Con
                 .setNavigateCheckoutRate(1.0f)
                 .setNavigateAddToCartRate(1.0f)
                 .setCheckoutPurchaseRate(1.0f));
-
-    ContentMetricsJob job = createJob();
-    job.outputParquet = true;
-    job.outputCumulatedFiles = true;
-    // Manually set the log stream underneath for processing.
+    List<JoinedImpression> joinedImpressions =
+        ImmutableList.of(createTestJoinedImpression("imp1", time, "i-1-1", 5));
+    setupStreams(inputLogRequests, joinedImpressions);
 
     StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
     Tables.createCatalogAndDatabase(tableEnv);
 
-    MetricsApiKafkaSource.SplitSources splitLogRequest =
-        job.metricsApiKafkaSource.splitSources(
-            fromItems(env, "logRequest", inputLogRequests, LogRequest::getTiming));
-    DataStream<JoinedEvent> joinedImpression =
-        fromItems(
-            env,
-            "joined-impression",
-            ImmutableList.of(createTestJoinedImpression("imp1", time, "i-1-1", 5)),
-            TypeInformation.of(JoinedEvent.class),
-            JoinedEvent::getTiming);
-    waitForDone(job.createOperators(tableEnv, splitLogRequest, joinedImpression));
+    waitForDone(
+        job.createOperators(
+            env, tableEnv, fakeValidatedDataSourceProvider, fakeFlatOutputKafkaSourceProvider));
     TableResult cumulatedContentMetrics =
         tableEnv.executeSql("SELECT * FROM `cumulated_content_metrics_view`");
 

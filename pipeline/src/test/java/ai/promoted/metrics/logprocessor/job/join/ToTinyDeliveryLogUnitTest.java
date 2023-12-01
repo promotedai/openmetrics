@@ -10,7 +10,9 @@ import ai.promoted.proto.delivery.Insertion;
 import ai.promoted.proto.delivery.Request;
 import ai.promoted.proto.delivery.Response;
 import ai.promoted.proto.event.CombinedDeliveryLog;
+import ai.promoted.proto.event.TinyCommonInfo;
 import ai.promoted.proto.event.TinyDeliveryLog;
+import ai.promoted.proto.event.TinyInsertionCore;
 import com.google.common.collect.ImmutableList;
 import com.google.protobuf.Struct;
 import com.google.protobuf.Value;
@@ -26,8 +28,8 @@ public class ToTinyDeliveryLogUnitTest {
             .setRequest(
                 Request.newBuilder()
                     .setPlatformId(1L)
-                    .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId1").build())
-                    .setTiming(Timing.newBuilder().setLogTimestamp(1))
+                    .setUserInfo(UserInfo.newBuilder().setAnonUserId("anonUserId1").build())
+                    .setTiming(Timing.newBuilder().setEventApiTimestamp(1))
                     .setRequestId("req1")
                     .setViewId("view1"))
             .setResponse(
@@ -39,15 +41,15 @@ public class ToTinyDeliveryLogUnitTest {
         CombinedDeliveryLog.newBuilder().setApi(deliveryLog).build();
     assertEquals(
         TinyDeliveryLog.newBuilder()
-            .setPlatformId(1L)
-            .setLogUserId("logUserId1")
-            .setLogTimestamp(1L)
+            .setCommon(
+                TinyCommonInfo.newBuilder()
+                    .setPlatformId(1L)
+                    .setAnonUserId("anonUserId1")
+                    .setEventApiTimestamp(1L))
             .setRequestId("req1")
             .setViewId("view1")
             .addResponseInsertion(
-                TinyDeliveryLog.TinyInsertion.newBuilder()
-                    .setInsertionId("ins1")
-                    .setContentId("content1"))
+                TinyInsertionCore.newBuilder().setInsertionId("ins1").setContentId("content1"))
             .build(),
         new ToTinyDeliveryLog(ImmutableList.of()).map(combinedDeliveryLog));
   }
@@ -58,7 +60,7 @@ public class ToTinyDeliveryLogUnitTest {
     CombinedDeliveryLog combinedDeliveryLog =
         CombinedDeliveryLog.newBuilder().setApi(deliveryLog).build();
     assertEquals(
-        TinyDeliveryLog.getDefaultInstance(),
+        TinyDeliveryLog.newBuilder().setCommon(TinyCommonInfo.getDefaultInstance()).build(),
         new ToTinyDeliveryLog(ImmutableList.of()).map(combinedDeliveryLog));
   }
 
@@ -70,8 +72,8 @@ public class ToTinyDeliveryLogUnitTest {
             .setRequest(
                 Request.newBuilder()
                     .setPlatformId(1L)
-                    .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId1").build())
-                    .setTiming(Timing.newBuilder().setLogTimestamp(1))
+                    .setUserInfo(UserInfo.newBuilder().setAnonUserId("anonUserId1").build())
+                    .setTiming(Timing.newBuilder().setEventApiTimestamp(1))
                     .setRequestId("req1")
                     .setViewId("view1")
                     .addInsertion(
@@ -132,27 +134,27 @@ public class ToTinyDeliveryLogUnitTest {
         CombinedDeliveryLog.newBuilder().setApi(deliveryLog).build();
     assertEquals(
         TinyDeliveryLog.newBuilder()
-            .setPlatformId(1L)
-            .setLogUserId("logUserId1")
-            .setLogTimestamp(1L)
+            .setCommon(
+                TinyCommonInfo.newBuilder()
+                    .setPlatformId(1L)
+                    .setAnonUserId("anonUserId1")
+                    .setEventApiTimestamp(1L))
             .setRequestId("req1")
             .setViewId("view1")
             .addResponseInsertion(
-                TinyDeliveryLog.TinyInsertion.newBuilder()
+                TinyInsertionCore.newBuilder()
                     .setInsertionId("ins1")
                     .setContentId("content1")
                     .putOtherContentIds(109770977, "store1"))
             .addResponseInsertion(
-                TinyDeliveryLog.TinyInsertion.newBuilder()
-                    .setInsertionId("ins2")
-                    .setContentId("content2"))
+                TinyInsertionCore.newBuilder().setInsertionId("ins2").setContentId("content2"))
             .addResponseInsertion(
-                TinyDeliveryLog.TinyInsertion.newBuilder()
+                TinyInsertionCore.newBuilder()
                     .setInsertionId("ins3")
                     .setContentId("content3")
                     .putOtherContentIds(106164915, "owner1"))
             .addResponseInsertion(
-                TinyDeliveryLog.TinyInsertion.newBuilder()
+                TinyInsertionCore.newBuilder()
                     .setInsertionId("ins4")
                     .setContentId("content4")
                     .putOtherContentIds(106164915, "owner2")
@@ -169,8 +171,8 @@ public class ToTinyDeliveryLogUnitTest {
             .setRequest(
                 Request.newBuilder()
                     .setPlatformId(1L)
-                    .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId1").build())
-                    .setTiming(Timing.newBuilder().setLogTimestamp(1))
+                    .setUserInfo(UserInfo.newBuilder().setAnonUserId("anonUserId1").build())
+                    .setTiming(Timing.newBuilder().setEventApiTimestamp(1))
                     .setRequestId("req1")
                     .setViewId("view1")
                     .setProperties(
@@ -179,8 +181,7 @@ public class ToTinyDeliveryLogUnitTest {
                                 Struct.newBuilder()
                                     .putFields(
                                         "store",
-                                        Value.newBuilder().setStringValue("store1").build())))
-                    .addInsertion(Insertion.newBuilder().setContentId("content1")))
+                                        Value.newBuilder().setStringValue("store1").build()))))
             .setResponse(
                 Response.newBuilder()
                     .addInsertion(
@@ -190,13 +191,15 @@ public class ToTinyDeliveryLogUnitTest {
         CombinedDeliveryLog.newBuilder().setApi(deliveryLog).build();
     assertEquals(
         TinyDeliveryLog.newBuilder()
-            .setPlatformId(1L)
-            .setLogUserId("logUserId1")
-            .setLogTimestamp(1L)
+            .setCommon(
+                TinyCommonInfo.newBuilder()
+                    .setPlatformId(1L)
+                    .setAnonUserId("anonUserId1")
+                    .setEventApiTimestamp(1L))
             .setRequestId("req1")
             .setViewId("view1")
             .addResponseInsertion(
-                TinyDeliveryLog.TinyInsertion.newBuilder()
+                TinyInsertionCore.newBuilder()
                     .setInsertionId("ins1")
                     .setContentId("content1")
                     .putOtherContentIds(109770977, "store1"))
@@ -212,8 +215,8 @@ public class ToTinyDeliveryLogUnitTest {
             .setRequest(
                 Request.newBuilder()
                     .setPlatformId(1L)
-                    .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId1").build())
-                    .setTiming(Timing.newBuilder().setLogTimestamp(1))
+                    .setUserInfo(UserInfo.newBuilder().setAnonUserId("anonUserId1").build())
+                    .setTiming(Timing.newBuilder().setEventApiTimestamp(1))
                     .setRequestId("req1")
                     .setViewId("view1")
                     .setProperties(
@@ -244,13 +247,15 @@ public class ToTinyDeliveryLogUnitTest {
         CombinedDeliveryLog.newBuilder().setApi(deliveryLog).build();
     assertEquals(
         TinyDeliveryLog.newBuilder()
-            .setPlatformId(1L)
-            .setLogUserId("logUserId1")
-            .setLogTimestamp(1L)
+            .setCommon(
+                TinyCommonInfo.newBuilder()
+                    .setPlatformId(1L)
+                    .setAnonUserId("anonUserId1")
+                    .setEventApiTimestamp(1L))
             .setRequestId("req1")
             .setViewId("view1")
             .addResponseInsertion(
-                TinyDeliveryLog.TinyInsertion.newBuilder()
+                TinyInsertionCore.newBuilder()
                     .setInsertionId("ins1")
                     .setContentId("content1")
                     .putOtherContentIds(109770977, "store2"))

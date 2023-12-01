@@ -8,8 +8,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 import ai.promoted.metrics.logprocessor.common.functions.sink.RedisSink;
+import ai.promoted.metrics.logprocessor.common.functions.sink.RedisSink.RedisSinkCommand;
 import ai.promoted.metrics.logprocessor.common.job.testing.BaseJobUnitTest;
 import com.google.common.collect.FluentIterable;
+import java.util.Objects;
+import org.apache.flink.runtime.state.storage.FileSystemCheckpointStorage;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -20,88 +24,57 @@ public class CounterJobUnitTest extends BaseJobUnitTest<CounterJob> {
   @Override
   protected CounterJob createJob() {
     CounterJob job = new CounterJob();
+    job.jobLabel = "blue";
     job.counterOutputStartTimestamp = 0;
     job.s3.rootPath = tempDir.getAbsolutePath();
+    env.setDefaultSavepointDirectory("file://" + tempDir.getAbsolutePath() + "/savepoint");
     // Checkpoint more frequently so we don't hit part files.
     job.configureExecutionEnvironment(env, 1, 0);
     return job;
   }
 
   @Test
-  void getInputLabel() {
-    CounterJob job = createJob();
-    job.jobLabel = "blue";
-    assertEquals("blue", job.getInputLabel());
-    job.jobLabel = "blue-canary";
-    assertEquals("blue-canary", job.getInputLabel());
-    job.overrideInputLabel = "blue";
-    assertEquals("blue", job.getInputLabel());
+  @Disabled("https://issues.apache.org/jira/browse/FLINK-23515")
+  void testCheckpointPath() {
+    createJob();
+    String expectedCheckpointPath =
+        "file://" + tempDir.getAbsolutePath() + "/checkpoint/" + "blue.counter";
+    String expectedDefaultSavepointPath =
+        "file://" + tempDir.getAbsolutePath() + "/savepoint/" + "blue.counter";
+    assertEquals(
+        expectedCheckpointPath,
+        ((FileSystemCheckpointStorage)
+                Objects.requireNonNull(env.getCheckpointConfig().getCheckpointStorage()))
+            .getCheckpointPath()
+            .toUri()
+            .toString());
+    assertEquals(
+        expectedDefaultSavepointPath,
+        Objects.requireNonNull(env.getDefaultSavepointDirectory()).toUri().toString());
   }
 
   @ParameterizedTest
   @ValueSource(booleans = {true, false})
-  void prepareSink(boolean doWipe) throws InterruptedException {
+  void prepareSink(boolean doWipe) throws Exception {
     CounterJob job = createJob();
     job.wipe = doWipe;
 
-    ArgumentCaptor<RedisSink.Command> commandCaptor =
-        ArgumentCaptor.forClass(RedisSink.Command.class);
+    ArgumentCaptor<RedisSinkCommand> commandCaptor =
+        ArgumentCaptor.forClass(RedisSinkCommand.class);
 
     RedisSink mockSink = mock(RedisSink.class);
     job.prepareSink(mockSink);
 
     verify(mockSink).initConnection();
-    verify(mockSink, times(doWipe ? 22 : 21)).sendCommand(commandCaptor.capture());
+    verify(mockSink, times(doWipe ? 2 : 1)).sendCommand(commandCaptor.capture());
     verify(mockSink).closeConnection(true);
     verifyNoMoreInteractions(mockSink);
 
-    FluentIterable<RedisSink.Command> actual = FluentIterable.from(commandCaptor.getAllValues());
+    FluentIterable<RedisSinkCommand> actual = FluentIterable.from(commandCaptor.getAllValues());
     if (doWipe) {
       assertThat(actual).contains(RedisSink.flush());
     }
 
-    // Just spot check a few values.
-    assertThat(actual)
-        .containsAtLeast(
-            RedisSink.ping(),
-            RedisSink.hset(
-                CounterKeys.ROW_FORMAT_KEY, "platform-device", "os,user_agent,fid:value", -1),
-            RedisSink.hset(
-                CounterKeys.FEATURE_IDS_KEY,
-                "platform-device",
-                CounterJob.CSV.join(CounterKeys.GLOBAL_EVENT_DEVICE_KEY.getFeatureIds()),
-                -1),
-            RedisSink.hset(
-                CounterKeys.ROW_FORMAT_KEY, "content-device", "os,user_agent,fid:value", -1),
-            RedisSink.hset(
-                CounterKeys.FEATURE_IDS_KEY,
-                "content-device",
-                CounterJob.CSV.join(CounterKeys.CONTENT_EVENT_DEVICE_KEY.getFeatureIds()),
-                -1),
-            RedisSink.hset(CounterKeys.ROW_FORMAT_KEY, "log-user", "fid:value", -1),
-            RedisSink.hset(
-                CounterKeys.FEATURE_IDS_KEY,
-                "user",
-                CounterJob.CSV.join(CounterKeys.USER_EVENT_KEY.getFeatureIds()),
-                -1),
-            RedisSink.hset(CounterKeys.ROW_FORMAT_KEY, "last-time-log-user-event", "fid:value", -1),
-            RedisSink.hset(
-                CounterKeys.FEATURE_IDS_KEY,
-                "last-time-user-event",
-                CounterJob.CSV.join(CounterKeys.LAST_USER_CONTENT_KEY.getFeatureIds()),
-                -1),
-            RedisSink.hset(CounterKeys.ROW_FORMAT_KEY, "query", "fid:value", -1),
-            RedisSink.hset(
-                CounterKeys.FEATURE_IDS_KEY,
-                "content-query",
-                CounterJob.CSV.join(CounterKeys.CONTENT_QUERY_EVENT_KEY.getFeatureIds()),
-                -1),
-            RedisSink.hset(
-                CounterKeys.FEATURE_IDS_KEY,
-                "last-time-log-user-query",
-                CounterJob.CSV.join(CounterKeys.LAST_LOG_USER_QUERY_KEY.getFeatureIds()),
-                -1),
-            RedisSink.hset(CounterKeys.ROW_FORMAT_KEY, "last-time-user-query", "fid:value", -1))
-        .inOrder();
+    assertThat(actual).contains(RedisSink.ping());
   }
 }

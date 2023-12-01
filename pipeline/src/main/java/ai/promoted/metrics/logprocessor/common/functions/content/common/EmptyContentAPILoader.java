@@ -1,6 +1,6 @@
 package ai.promoted.metrics.logprocessor.common.functions.content.common;
 
-import ai.promoted.metrics.logprocessor.common.functions.SerializableBiFunction;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableBiFunction;
 import com.google.common.collect.ImmutableMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;

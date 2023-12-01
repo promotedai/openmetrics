@@ -1,0 +1,33 @@
+load("@rules_java//java:defs.bzl", "java_library", "java_plugin")
+
+java_plugin(
+    name = "autovalue_plugin",
+    processor_class = "com.google.auto.value.processor.AutoValueProcessor",
+    deps = [
+        "@maven//:com_google_auto_value_auto_value",
+    ],
+)
+
+java_library(
+    name = "autovalue",
+    exported_plugins = [":autovalue_plugin"],
+    exports = [
+        "@maven//:com_google_auto_value_auto_value",
+        "@maven//:com_google_auto_value_auto_value_annotations",
+    ],
+)
+
+java_library(
+    name = "anonymizer",
+    srcs = glob(["*.java"]),
+    visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
+    deps = [
+        ":autovalue",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/aws",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions/base",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/job",
+        "@maven//:com_google_guava_guava",
+        "@com_google_protobuf//:protobuf_java",
+        "@maven//:info_picocli_picocli",
+    ],
+)

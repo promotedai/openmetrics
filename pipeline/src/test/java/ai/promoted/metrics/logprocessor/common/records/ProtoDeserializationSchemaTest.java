@@ -15,7 +15,7 @@ public class ProtoDeserializationSchemaTest {
   @Test
   public void serDe() throws Exception {
     ProtoDeserializationSchema<LogRequest> schema =
-        new ProtoDeserializationSchema(LogRequest.class, LogRequest::parseFrom);
+        new ProtoDeserializationSchema(LogRequest::parseFrom);
     LogRequest request =
         LogRequest.newBuilder()
             .setPlatformId(1)
@@ -29,7 +29,7 @@ public class ProtoDeserializationSchemaTest {
   @Test
   public void deserialize_badProto() throws Exception {
     ProtoDeserializationSchema<LogRequest> schema =
-        new ProtoDeserializationSchema(LogRequest.class, LogRequest::parseFrom);
+        new ProtoDeserializationSchema(LogRequest::parseFrom);
     assertThrows(
         IOException.class,
         () -> {

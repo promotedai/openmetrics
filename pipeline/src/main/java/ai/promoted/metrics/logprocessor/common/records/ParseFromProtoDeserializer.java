@@ -1,6 +1,6 @@
 package ai.promoted.metrics.logprocessor.common.records;
 
-import ai.promoted.metrics.logprocessor.common.functions.SerializableParseFrom;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableParseFrom;
 import com.google.protobuf.GeneratedMessageV3;
 import com.google.protobuf.InvalidProtocolBufferException;
 import java.util.Base64;
@@ -8,7 +8,7 @@ import java.util.Base64;
 /** A serializable function to deserialize the proto. */
 public class ParseFromProtoDeserializer<T extends GeneratedMessageV3>
     implements ProtoDeserializer<T> {
-  private SerializableParseFrom<T> parseFrom;
+  private final SerializableParseFrom<T> parseFrom;
 
   public ParseFromProtoDeserializer(SerializableParseFrom<T> parseFrom) {
     this.parseFrom = parseFrom;

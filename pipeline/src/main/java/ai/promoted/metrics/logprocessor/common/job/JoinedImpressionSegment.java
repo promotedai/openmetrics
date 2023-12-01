@@ -2,11 +2,11 @@ package ai.promoted.metrics.logprocessor.common.job;
 
 import ai.promoted.metrics.logprocessor.common.functions.KeepFirstRow;
 import ai.promoted.metrics.logprocessor.common.functions.KeyUtil;
-import ai.promoted.proto.event.JoinedEvent;
-import com.google.common.collect.ImmutableList;
+import ai.promoted.proto.event.JoinedImpression;
+import com.google.common.collect.ImmutableSet;
 import com.google.protobuf.GeneratedMessageV3;
 import java.time.Duration;
-import java.util.List;
+import java.util.Set;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import picocli.CommandLine;
@@ -17,14 +17,14 @@ import picocli.CommandLine;
  */
 public class JoinedImpressionSegment implements FlinkSegment {
 
+  private final BaseFlinkJob baseFlinkJob;
+
   @CommandLine.Option(
       names = {"--keepFirstJoinedImpressionDuration"},
       defaultValue = "PT6H",
       description =
           "The duration to keep track of recent JoinedImpressions.  This is used to de-duplicate joined inputs.  Default=PT6H.  Java8 Duration parse format.")
   public Duration keepFirstJoinedImpressionDuration = Duration.parse("PT6H");
-
-  private final BaseFlinkJob baseFlinkJob;
 
   public JoinedImpressionSegment(BaseFlinkJob baseFlinkJob) {
     this.baseFlinkJob = baseFlinkJob;
@@ -35,19 +35,19 @@ public class JoinedImpressionSegment implements FlinkSegment {
     // Do nothing.
   }
 
-  public DataStream<JoinedEvent> getDeduplicatedJoinedImpression(
-      DataStream<JoinedEvent> joinedImpression) {
+  public DataStream<JoinedImpression> getDeduplicatedJoinedImpression(
+      DataStream<JoinedImpression> joinedImpression) {
     return baseFlinkJob.add(
         joinedImpression
             .keyBy(KeyUtil.joinedImpressionKey)
             .process(
                 new KeepFirstRow<>("joined-impression", keepFirstJoinedImpressionDuration),
-                TypeInformation.of(JoinedEvent.class)),
+                TypeInformation.of(JoinedImpression.class)),
         "keep-first-joined-impression");
   }
 
   @Override
-  public List<Class<? extends GeneratedMessageV3>> getProtoClasses() {
-    return ImmutableList.of(JoinedEvent.class);
+  public Set<Class<? extends GeneratedMessageV3>> getProtoClasses() {
+    return ImmutableSet.of(JoinedImpression.class);
   }
 }

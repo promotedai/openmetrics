@@ -15,6 +15,7 @@ function ephemeral_port() {
   done
 }
 
+# TODO Update Flink verification logic
 printf "Verifying if Flink is accessible..."
 flink_rest_temp_port="$(ephemeral_port)"
 (kubectl port-forward svc/flink-jobmanager-rest -n $LOCAL_K8S_NAMESPACE $flink_rest_temp_port:8081 >/dev/null 2>&1) &

@@ -1,21 +1,31 @@
-# Overview
 
+# Overview
 The "big picture" goals of the Flink pipeline is best illustrated in the [Metrics Solution diagrams](https://drive.google.com/drive/folders/1wtHCBk3hGdr7vbWi2kD42zc4FDnpRrPV) and the `Detailed Diagrams` subfolder.  Some notable diagrams are:
-* [System Overview - Presentation](https://drive.google.com/file/d/19mwOiuxUji-T_Zxqcr4J2NDgZXHypmd6/view?usp=sharing) - (intended) general flow of data between the major systems at promoted.ai
-* [Metrics Solution](https://drive.google.com/file/d/1IqrMIY-S8hcsOp7bUnTAHhUgBy1SaJre/view?usp=sharing) - illustrates the metrics use cases
-* [Detailed Diagrams/Metrics](https://drive.google.com/file/d/1TI9C0e-2B9qwLQDlyQqRuclLRxzko611/view?usp=sharing) - service level diagram of metrics stack components and jobs
+* Stale [System Overview - Presentation](https://drive.google.com/file/d/19mwOiuxUji-T_Zxqcr4J2NDgZXHypmd6/view?usp=sharing) - (intended) general flow of data between the major systems at promoted.ai
+* Stale [Metrics Solution](https://drive.google.com/file/d/1IqrMIY-S8hcsOp7bUnTAHhUgBy1SaJre/view?usp=sharing) - illustrates the metrics use cases
+* Stale [Detailed Diagrams/Metrics](https://drive.google.com/file/d/1TI9C0e-2B9qwLQDlyQqRuclLRxzko611/view?usp=sharing) - service level diagram of metrics stack components and jobs
+
+```mermaid
+  graph TD;
+      ValidateEnrich-->RawLog;
+      ValidateEnrich-->FlatOutput;
+      ValidateEnrich-->Counter;
+      FlatOutput-->Counter;
+      ValidateEnrich-->ContentMetrics;
+      FlatOutput-->ContentMetrics;
+      FlatOutput-->ContentQueryMetrics;
+```
 
 There are currently three streaming jobs:
-1. Raw Output Job - Save raw log records to S3.
-2. Flat Output Job - Join log records and save these flattened (denormalized) log records in Kafka and S3.
+1. ValidateEnrich Job - Validates LogRequest records.  Some some small enrichment.  Saves records to Kafka.
+2. RawOutput Job - Logs records from Kafka to S3 (Hudi, Avro and/or Parquet).
+3. FlatOutput (Join) Job - Creates join tables such as `joined_impression`, `joined_action` and `flat_response_insertion`.  This job has a joining/attribution stage and then a denormalization stage.
 3. Counter Job - Count impression and actions over various segments for delivery.
-4. Content Metrics Job - Produces ETL tables that contain aggregate metrics by contentId.
-
-More details about these jobs can be found at [src/main/java/ai/promoted/metrics/logprocessor/stream/](src/main/java/ai/promoted/metrics/logprocessor/stream/README.md).
+4. ContentMetrics and ContentQueryMetrics Job - Produces ETL tables that contain aggregate metrics by contentId (and query).
 
 ## Why Flink?
 
-We need a real-time data processing system that can scale (>1B log records per day per marketplace) and has fast end-to-end latency (on the order of seconds).  Flink is the leading open source solution for solving this problem.  It's designed for (locally) stateful streaming.  It scales better than current alternatives.
+We need a real-time data processing system that can scale (>1B log records per day per marketplace) and has fast end-to-end latency (on the order of seconds).  Flink is the leading open source solution for solving this problem.  It's designed for stateful streaming.  It scales better than current alternatives.
 
 # Setup
 
@@ -32,41 +42,113 @@ See the [workstation setup docs](https://github.com/promotedai/workstation/blob/
 
 ## Setup Flink pipeline locally.
 
-You need to start Kafka with the required topics.  The easiest way to do that is running `make local` in `//kafka`.
+### Simple local setup
 
-To start the Flink stack
+You need to set up Minikube locally with a `metrics` K8s namespace.  Internal devs can use instructions in our `workstation` repo. 
+
+Recommendation: start just the jobs you need.  The jobs consume a lot of resources.
+
+Start Kafka with the required topics.  The easiest way to:
+
+```bash
+cd metrics/kafka
+make local
+```
+
+Start Flink operators, MinIO and Redis.
+
+```bash
+cd metrics/pipeline
+make local
+```
+
+Write some fake event data.
+
+```bash
+make local-fake-log-generator-setup
+```
+
+Start up ValidateEnrich job.
+
+```bash
+make local-validate-enrich-job-setup
+```
+
+Optionally, run the join job if your job needs joined outputs.
+
+```bash
+make local-flat-output-job-setup
+```
+
+Then start the job you want to run.
+
+
+### General command structure
+
+Most local commands have a `-setup` and `-clean` version.  Clean tears down the jobs.
+
+Most of the Make commands just run `kubectl` commands.  If you want to delete and apply, you can chain the commands.  Example using fake `foo` command:
+
+```bash
+make local-foo-clean && make local-foo-setup
+```
+
+### Detailed commands
+
+Overall setup
 
 |**Command**|**Description**|
 |-----------|---------------|
-|`make local`|Setup Flink pods, MinIO and the streaming job|
-|`make clean-local`|Cleans all jobs created in this directory|
-
-If you are iterating on parts of the stack, you can run one of the following commands.  If you are iterating on just a single job (say `foo`), you can run `make local-foo-clean && make local-foo-setup`.
-
-|**Command**|**Description**|
-|-----------|---------------|
+|`make local`|Setup Flink Operator, MinIO, Redis|
+|`make clean-local`|Tears down those resources|
+|`make local-flink-operator-setup`|Setup Flink Operator|
+|`make local-flink-operator-clean`|Tear down|
 |`make local-minio-setup`|Setup MinIO|
-|`make local-minio-clean`|Tear down MinIO|
+|`make local-minio-clean`|Tear down|
 |`make local-redis-setup`|Setup Redis|
-|`make local-redis-clean`|Tear down Redis|
-|`make local-flink-setup`|Setup Flink pods and all jobs|
-|`make local-flink-clean`|Tear down Flink and all jobs|
+|`make local-redis-clean`|Tear down|
+
+You can do similar things with jobs
+|`make local-raw-output-job-setup`|Deploy the raw output jobs|
+|`make local-raw-output-job-clean`|Stops the current raw output jobs and deletes the k8s config|
+
+
+### Data population
+
+Usually only the `fake-log-generator` is needed.
+
+|**Command**|**Description**|
+|-----------|---------------|
 |`make local-fake-log-generator-setup`|Deploy a job that writes fake log records to Kafka.  Writes to Kafka|
 |`make local-fake-log-generator-clean`|Deletes the k8s config|
 |`make local-fake-content-generator-setup`|Deploy a job that writes fake content records to Content API.|
 |`make local-fake-content-generator-clean`|Deletes the k8s config|
-|`make local-raw-output-job-setup`|Deploy the raw output jobs|
-|`make local-raw-output-job-clean`|Stops the current raw output jobs and deletes the k8s config|
-|`make local-flat-output-job-setup`|Deploy the flat output job|
-|`make local-flat-output-job-clean`|Stops the current flat output job and deletes the k8s config|
-|`make local-counter-job-setup`|Deploy the counter job|
-|`make local-counter-job-clean`|Stops the current counter job and deletes the k8s config|
+
+
+### Flink jobs
+
+|**Command**|**Description**|
+|-----------|---------------|
+|`make local-validate-enrich-job-setup`|Deploy the ValidateEnrich job.  Validates and enrichs log records.|
+|`make local-validate-enrich-output-job-clean`|Stops that job|
+|`make local-raw-output-job-setup`|Deploy the RawOutput job.  Writes records to S3 (MinIO locally).|
+|`make local-raw-output-job-clean`||
+|`make local-flat-output-job-setup`|Deploy the FlatOutput job.  Joins events.|
+|`make local-flat-output-job-clean`||
+|`make local-counter-job-setup`|Deploy the Counter job|
+|`make local-counter-job-clean`||
+|`make local-content-metrics-job-setup`|Deploy the ContentMetrics job|
+|`make local-content-metrics-job-clean`||
+|`make local-content-query-metrics-job-setup`|Deploy the ContentQueryMetrics job|
+|`make local-content-query-metrics-job-clean`||
 
 # Development
 
 ## Conventions
 
 ### Operator uid
+
+WARNING: This section needs updating after we deploy Hudi and use more Flink SQL.  The current Hudi Flink writer needs to auto-generate Flink uids.
 
 We disable autogeneration of Flink uids because they regularly create forwards incompatible releases.  We enforce some conventions in unit tests, but rely on devs to adhere to them.  Defer to the conventions outlined in [UidChecker](https://github.com/promotedai/metrics/blob/develop/pipeline/src/test/java/ai/promoted/metrics/logprocessor/stream/UidChecker.java) if there's disagreement between here and there.
 
@@ -118,21 +200,30 @@ The default local setup does not join in Content details from Content API.  Here
   ```
 
 ## Connect to Flink UI
-```
-# either of the below commands should work, so just pick one
-kubectl -n ${NAMESPACE} port-forward flink-jobmanager-0 8081:8081
-kubectl -n ${NAMESPACE} port-forward $(kubectl -n ${NAMESPACE} get pods -l "app.kubernetes.io/name=flink,app.kubernetes.io/instance=flink" -o jsonpath="{.items[0].metadata.name}") 8081:8081
 
+Here's an example command for connecting to a Flink JobManager UI.
+
+```bash
+kubectl -n metrics port-forward svc/raw-output-flink-job-blue-rest   8081:8081
 ```
 
 Then visit http://localhost:8081 to load the Flink UI.
 
 ## Connect to MinIO UI.
+
+In a different terminal, run (and keep it running)
 ```
-kubectl -n ${NAMESPACE} port-forward $(kubectl -n ${NAMESPACE} get pods -l "release=minio" -o jsonpath="{.items[0].metadata.name}") 9000:9000
+minikube -n metrics service minio-console --url
 ```
 
-When you load the UI (http://localhost:9000), you will be asked for access keys.  We use the default keys since we are only using MinIO locally:
+On a Mac, this outputs
+```
+😿  service yournamespace/minio-console has no node port
+http://127.0.0.1:59633
+❗  Because you are using a Docker driver on darwin, the terminal needs to be open to run it.
+```
+
+When you load the UI, you will be asked for access keys.  We use the default keys since we are only using MinIO locally:
 * accessKey=`YOURACCESSKEY`
 * secretKey=`YOURSECRETKEY`
 
@@ -157,7 +248,7 @@ mc rm -r --force local/promoted-event-logs
 
 ## Connect to Redis.
 ```
-kubectl -n ${NAMESPACE} port-forward svc/redis-master 6379
+kubectl -n metrics port-forward svc/redis-cluster 6379
 redis-cli -h localhost -p 6379
 ```
 
@@ -185,20 +276,20 @@ There are a few ways to get logs.  The direct `kubectl logs` might not give the 
 
 ```
 # fetches the job population logs (hint: execution plans are output here if coded to do so)
-kubectl -n ${NAMESPACE} logs flink-taskmanager-0
+kubectl -n metrics logs pod/{pod}
 # lists all logs available in the local flink taskmanager
-kubectl -n ${NAMESPACE} exec -ti flink-taskmanager-0 -- ls /opt/flink/log
+kubectl -n metrics exec -ti pod/{pod} -- ls /opt/flink/log
 # grabs the last 100 lines of the log file of a local flink taskmanager
-kubectl -n ${NAMESPACE} exec -ti flink-taskmanager-0 -- tail -n 100 /opt/flink/log/flink--taskexecutor-0-flink-taskmanager-0.log
+kubectl -n metrics exec -ti pod/{pod} -- tail -n 100 /opt/flink/log/flink--taskexecutor-0-flink-taskmanager-0.log
 # grabs the last 100 lines of the stdout of a local flink taskmanager
-kubectl -n ${NAMESPACE} exec -ti flink-taskmanager-0 -- tail -n 100 /opt/flink/log/flink--taskexecutor-0-flink-taskmanager-0.out
+kubectl -n metrics exec -ti pod/{pod} -- tail -n 100 /opt/flink/log/flink--taskexecutor-0-flink-taskmanager-0.out
 ```
 
 ### Kafka topic inspection
 You need to run kafka-testclient first.
 ```
 # dumps the tmp-output topic to stdout
-kubectl -n ${NAMESPACE} exec -ti kafka-testclient -- kafka-console-consumer --bootstrap-server kafka:9092 --topic tmp-output --from-beginning
+kubectl -n metrics exec -ti kafka-testclient -- kafka-console-consumer --bootstrap-server kafka:9092 --topic tmp-output --from-beginning
 ```
 
 ### Hit the Flink REST API
@@ -218,38 +309,13 @@ kubectl -n ${NAMESPACE} exec -ti flink-taskmanager-0 -- flink list
 ```
 
 ### Stopping a Flink job with a savepoint
-```
-kubectl -n ${NAMESPACE} exec -ti flink-taskmanager-0 -- flink stop <job-id>
-```
-
-### Cancelling a Flink job without a savepoint
-*WARNING:* ungracefully exits!  You should probably use stop instead.
-```
-kubectl -n ${NAMESPACE} exec -ti flink-taskmanager-0 -- flink cancel <job-id>
-```
-
-### Trigger a savepoint manually
-```
-kubectl -n ${NAMESPACE} exec -ti flink-taskmanager-0 -- flink savepoint <job-id>
-```
+Use Flink K8s Operators.  If you make a change to the K8s file and want to re-run it, run the make setup command again.
 
 ### Restart using a savepoint
-Assumes you've cancelled the job with a savepoint.
-
-1. Look for the savepoint in minio and note the path.
-2. Edit `kubernetes/local/<foo>-job.yaml` and follow the directions about using the `-s <savepoint path>` flag.
-3. `make local-<foo>-clean && make local-<foo>-setup`
-
-### Run Flink with more parallelism.
-1. Add a `-p "2"` in `kubernetes/local/<foo>-job.yaml`
-2. Override or change `taskmanager.replicaCount` in `kubernetes/local/flink-values.yaml` from `1` to `2`.
-3. `kubectl -n ${NAMESPACE} delete flink-taskmanager-0`
-4. Wait for a new taskmanager to start automatically via helm.
-5. Re-create the job: `make local-<foo>-setup`
+Use Flink K8s Operator.  You can set `spec.job.initialSavepointPath` to the savepoint url.
 
 ### Manual throughput testing
-
-Add the following to `kubernetes/local/flink-values.yaml` under `flink.params`.  This will print metrics to the text logs.
+Add the following to the local Flink configs.  This will print metrics to the text logs.
 
 ```
 metrics.reporter.slf4j.factory.class: org.apache.flink.metrics.slf4j.Slf4jReporterFactory
@@ -259,7 +325,7 @@ metrics.reporter.slf4j.interval: 60 SECONDS
 To filter down the values, here's an example query
 
 ```bash
-kubectl -n ${NAMESPACE} exec pod/flink-taskmanager-0 -- cat log/flink--taskexecutor-0-flink-taskmanager-0.log  | grep "numRecordsOut" | grep "join-event" | grep "Join insertion to impressions.0" | sed "s/^.*numRecordsOut/numRecordsOut/"
+kubectl -n metrics exec pod/{pod} -- cat log/flink--taskexecutor-0-flink-taskmanager-0.log  | grep "numRecordsOut" | grep "join-event" | grep "Join insertion to impressions.0" | sed "s/^.*numRecordsOut/numRecordsOut/"
 ```
 
 This gives records like

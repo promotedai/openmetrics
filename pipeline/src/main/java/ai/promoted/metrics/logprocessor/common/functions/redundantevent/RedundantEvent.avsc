@@ -1,0 +1,77 @@
+[
+  {
+    "type": "record",
+    "name": "RedundantImpression",
+    "namespace": "ai.promoted.metrics.common",
+    "fields": [
+      {
+        "name": "platformId",
+        "type": "long",
+        "default": 0
+      },
+      {
+        "name": "eventApiTimestamp",
+        "type": "long",
+        "default": 0
+      },
+      {
+        "name": "redundantImpressionId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "impressionId",
+        "type": "string",
+        "default": ""
+      }
+    ]
+  },
+
+  {
+    "type": "record",
+    "name": "RedundantAction",
+    "namespace": "ai.promoted.metrics.common",
+    "fields": [
+      {
+        "name": "platformId",
+        "type": "long",
+        "default": 0
+      },
+      {
+        "name": "eventApiTimestamp",
+        "type": "long",
+        "default": 0
+      },
+      {
+        "name": "redundantActionId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "redundantActionType",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "redundantCustomActionType",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "actionId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "actionType",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "customActionType",
+        "type": "string",
+        "default": ""
+      }
+    ]
+  }
+]

@@ -30,7 +30,7 @@ public abstract class BaseJobUnitTest<JOB extends BaseFlinkJob> extends BaseJobT
 
   /**
    * This attempts to catch recursive (including cyclic) types for Glue. If you need to change this
-   * test, please also change {@code FixedProtobufData}.
+   * test, please also change {@code PromotedProtobufData}.
    */
   @Test
   public void checkForRecursiveProtoTypes() throws Exception {
@@ -101,7 +101,7 @@ public abstract class BaseJobUnitTest<JOB extends BaseFlinkJob> extends BaseJobT
           switch (field.getName()) {
             case "nonBuyerUserSparseHashes":
               // Fake list to trigger code paths.
-              // User property "is_host" - ccc
+              // User property "is_host" - Hipcamp
               field.set(
                   segment, enable ? ImmutableList.of(6102540093495235004L) : ImmutableList.of());
               break;

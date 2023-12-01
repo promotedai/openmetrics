@@ -21,19 +21,18 @@ public class ValidateViewTest extends BaseValidateTest<View> {
   @BeforeEach
   public void setUp() {
     super.setUp();
-    validate = new ValidateView();
+    validate = new ValidateView(true);
   }
 
   @Test
   public void valid() throws Exception {
-    View view = View.newBuilder().setUserInfo(UserInfo.newBuilder().setLogUserId("123")).build();
+    View view = View.newBuilder().setUserInfo(UserInfo.newBuilder().setAnonUserId("123")).build();
     validate.processElement(view, mockContext, mockOut);
-    verify(mockContext, never()).output(eq(ValidateView.INVALID_TAG), any(ValidationError.class));
-    verify(mockOut).collect(view);
+    verifyValid(view);
   }
 
   @Test
-  public void missingLogUserId() throws Exception {
+  public void missingAnonUserId() throws Exception {
     View view =
         View.newBuilder()
             .setPlatformId(PLATFORM_ID)
@@ -45,15 +44,36 @@ public class ValidateViewTest extends BaseValidateTest<View> {
     // Future validation tests do not need assert the full message.  It can call createError.
     verify(mockContext)
         .output(
-            ValidateUser.INVALID_TAG,
+            ValidateView.VALIDATION_ERROR_TAG,
             ValidationError.newBuilder()
                 .setRecordType(RecordType.VIEW)
                 .setErrorType(ErrorType.MISSING_FIELD)
-                .setField(Field.LOG_USER_ID)
+                .setField(Field.ANON_USER_ID)
                 .setPlatformId(PLATFORM_ID)
                 .setViewId(VIEW_ID)
                 .setTiming(getAvroTiming())
                 .build());
+    verify(mockContext).output(validate.getInvalidRecordTag(), view);
     verify(mockOut, never()).collect(view);
+  }
+
+  @Test
+  public void missingAnonUserId_optional() throws Exception {
+    validate = new ValidateView(false);
+    View view =
+        View.newBuilder()
+            .setPlatformId(PLATFORM_ID)
+            .setTiming(getProtoTiming())
+            .setViewId(VIEW_ID)
+            .build();
+    validate.processElement(view, mockContext, mockOut);
+    verifyValid(view);
+  }
+
+  private void verifyValid(View view) {
+    verify(mockContext, never())
+        .output(eq(ValidateView.VALIDATION_ERROR_TAG), any(ValidationError.class));
+    verify(mockContext, never()).output(eq(validate.getInvalidRecordTag()), any(View.class));
+    verify(mockOut).collect(view);
   }
 }

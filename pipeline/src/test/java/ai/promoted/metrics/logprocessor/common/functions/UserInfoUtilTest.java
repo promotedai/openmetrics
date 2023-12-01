@@ -7,58 +7,85 @@ import ai.promoted.proto.common.UserInfo;
 import ai.promoted.proto.delivery.DeliveryLog;
 import ai.promoted.proto.delivery.Request;
 import ai.promoted.proto.event.Action;
+import ai.promoted.proto.event.AttributedAction;
 import ai.promoted.proto.event.AutoView;
 import ai.promoted.proto.event.CohortMembership;
 import ai.promoted.proto.event.Diagnostics;
-import ai.promoted.proto.event.DroppedMergeDetailsEvent;
 import ai.promoted.proto.event.FlatResponseInsertion;
 import ai.promoted.proto.event.Impression;
-import ai.promoted.proto.event.JoinedEvent;
+import ai.promoted.proto.event.JoinedImpression;
 import ai.promoted.proto.event.Session;
 import ai.promoted.proto.event.SessionProfile;
+import ai.promoted.proto.event.Touchpoint;
 import ai.promoted.proto.event.User;
 import ai.promoted.proto.event.View;
+import javax.annotation.Nullable;
 import org.junit.jupiter.api.Test;
 
 public class UserInfoUtilTest {
 
-  // JoinedEvent.
+  // JoinedImpression.
   @Test
-  public void clearUserId_JoinedEvent() {
+  public void clearUserId_JoinedImpression() {
     assertEquals(
-        JoinedEvent.newBuilder()
-            .setRequest(
-                Request.newBuilder().setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId1")))
-            .build(),
+        newJoinedImpression(UserInfo.newBuilder().setLogUserId("logUserId1").build()),
         clearUserId(
-            JoinedEvent.newBuilder()
-                .setRequest(
-                    Request.newBuilder()
-                        .setUserInfo(
-                            UserInfo.newBuilder().setUserId("userId1").setLogUserId("logUserId1")))
-                .build()));
+            newJoinedImpression(
+                UserInfo.newBuilder().setUserId("userId1").setLogUserId("logUserId1").build())));
   }
 
   @Test
-  public void clearUserId_JoinedEvent_NotSet() {
+  public void clearUserId_JoinedImpression_NotSet() {
     assertEquals(
-        JoinedEvent.newBuilder()
-            .setRequest(
-                Request.newBuilder().setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId1")))
-            .build(),
-        clearUserId(
-            JoinedEvent.newBuilder()
-                .setRequest(
-                    Request.newBuilder()
-                        .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId1")))
-                .build()));
+        newJoinedImpression(UserInfo.newBuilder().setLogUserId("logUserId1").build()),
+        clearUserId(newJoinedImpression(UserInfo.newBuilder().setLogUserId("logUserId1").build())));
   }
 
   @Test
-  public void clearUserId_JoinedEvent_NoUserInfo() {
+  public void clearUserId_JoinedImpression_NoUserInfo() {
+    assertEquals(newJoinedImpression(null), clearUserId(newJoinedImpression(null)));
+  }
+
+  private JoinedImpression newJoinedImpression(@Nullable UserInfo userInfo) {
+    Request.Builder requestBuilder = Request.newBuilder();
+    if (userInfo != null) {
+      requestBuilder.setUserInfo(userInfo);
+    }
+    return JoinedImpression.newBuilder().setRequest(requestBuilder).build();
+  }
+
+  // AttributedAction.
+  @Test
+  public void clearUserId_AttributedAction() {
     assertEquals(
-        JoinedEvent.newBuilder().setRequest(Request.getDefaultInstance()).build(),
-        clearUserId(JoinedEvent.newBuilder().setRequest(Request.getDefaultInstance()).build()));
+        newAttributedAction(UserInfo.newBuilder().setLogUserId("logUserId1").build()),
+        clearUserId(
+            newAttributedAction(
+                UserInfo.newBuilder().setUserId("userId1").setLogUserId("logUserId1").build())));
+  }
+
+  @Test
+  public void clearUserId_AttributedAction_NotSet() {
+    assertEquals(
+        newAttributedAction(UserInfo.newBuilder().setLogUserId("logUserId1").build()),
+        clearUserId(newAttributedAction(UserInfo.newBuilder().setLogUserId("logUserId1").build())));
+  }
+
+  @Test
+  public void clearUserId_AttributedAction_NoUserInfo() {
+    assertEquals(newAttributedAction(null), clearUserId(newAttributedAction(null)));
+  }
+
+  private AttributedAction newAttributedAction(@Nullable UserInfo userInfo) {
+    Request.Builder requestBuilder = Request.newBuilder();
+    if (userInfo != null) {
+      requestBuilder.setUserInfo(userInfo);
+    }
+    return AttributedAction.newBuilder()
+        .setTouchpoint(
+            Touchpoint.newBuilder()
+                .setJoinedImpression(JoinedImpression.newBuilder().setRequest(requestBuilder)))
+        .build();
   }
 
   // FlatResponseInsertion.
@@ -99,62 +126,6 @@ public class UserInfoUtilTest {
         FlatResponseInsertion.newBuilder().setRequest(Request.getDefaultInstance()).build(),
         clearUserId(
             FlatResponseInsertion.newBuilder().setRequest(Request.getDefaultInstance()).build()));
-  }
-
-  // DroppedMergeDetailsEvent.
-  @Test
-  public void clearUserId_DroppedMergeDetailsEvent() {
-    assertEquals(
-        DroppedMergeDetailsEvent.newBuilder()
-            .setJoinedEvent(
-                JoinedEvent.newBuilder()
-                    .setRequest(
-                        Request.newBuilder()
-                            .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId1"))))
-            .build(),
-        clearUserId(
-            DroppedMergeDetailsEvent.newBuilder()
-                .setJoinedEvent(
-                    JoinedEvent.newBuilder()
-                        .setRequest(
-                            Request.newBuilder()
-                                .setUserInfo(
-                                    UserInfo.newBuilder()
-                                        .setUserId("userId1")
-                                        .setLogUserId("logUserId1"))))
-                .build()));
-  }
-
-  @Test
-  public void clearUserId_DroppedMergeDetailsEvent_NotSet() {
-    assertEquals(
-        DroppedMergeDetailsEvent.newBuilder()
-            .setJoinedEvent(
-                JoinedEvent.newBuilder()
-                    .setRequest(
-                        Request.newBuilder()
-                            .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId1"))))
-            .build(),
-        clearUserId(
-            DroppedMergeDetailsEvent.newBuilder()
-                .setJoinedEvent(
-                    JoinedEvent.newBuilder()
-                        .setRequest(
-                            Request.newBuilder()
-                                .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId1"))))
-                .build()));
-  }
-
-  @Test
-  public void clearUserId_DroppedMergeDetailsEvent_NoUserInfo() {
-    assertEquals(
-        DroppedMergeDetailsEvent.newBuilder()
-            .setJoinedEvent(JoinedEvent.getDefaultInstance())
-            .build(),
-        clearUserId(
-            DroppedMergeDetailsEvent.newBuilder()
-                .setJoinedEvent(JoinedEvent.getDefaultInstance())
-                .build()));
   }
 
   // User.

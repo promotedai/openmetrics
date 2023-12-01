@@ -12,15 +12,18 @@ import org.apache.flink.util.Collector;
 
 /** Filter DeliveryLog records to valid ones. */
 public class ValidateDeliveryLog extends BaseValidate<DeliveryLog> {
+  public ValidateDeliveryLog(boolean requireAnonUserId) {
+    super(DeliveryLog.class, requireAnonUserId);
+  }
+
+  @Override
   public void processElement(
       DeliveryLog deliveryLog,
       ProcessFunction<DeliveryLog, DeliveryLog>.Context ctx,
       Collector<DeliveryLog> out)
       throws Exception {
     ImmutableList.Builder<ValidationError> errors = ImmutableList.builder();
-    if (deliveryLog.getRequest().getUserInfo().getLogUserId().isEmpty()) {
-      errors.add(createError(deliveryLog, ErrorType.MISSING_FIELD, Field.LOG_USER_ID));
-    }
+    validateAnonUserId(deliveryLog, deliveryLog.getRequest().getUserInfo(), errors);
     if (hasMismatchedMatrixHeaderLength(deliveryLog)) {
       errors.add(
           createError(deliveryLog, ErrorType.MISMATCHED_MATRIX_HEADER_LENGTH, Field.MULTIPLE));
@@ -44,7 +47,7 @@ public class ValidateDeliveryLog extends BaseValidate<DeliveryLog> {
     return ValidationError.newBuilder()
         .setRecordType(RecordType.DELIVERY_LOG)
         .setPlatformId(request.getPlatformId())
-        .setLogUserId(request.getUserInfo().getLogUserId())
+        .setAnonUserId(request.getUserInfo().getAnonUserId())
         .setViewId(request.getViewId())
         .setRequestId(request.getRequestId())
         .setTiming(toAvro(request.getTiming()));

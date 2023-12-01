@@ -37,6 +37,15 @@ public final class StringUtil {
     return values[values.length - 1];
   }
 
+  public static String firstNotNull(String... values) {
+    for (String value : values) {
+      if (null != value) {
+        return value;
+      }
+    }
+    return null;
+  }
+
   /**
    * Gets the xxhash64 value for a string.
    *

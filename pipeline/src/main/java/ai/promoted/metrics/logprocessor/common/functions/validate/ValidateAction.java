@@ -11,15 +11,16 @@ import org.apache.flink.util.Collector;
 
 /** Filter Action records to valid ones. */
 public class ValidateAction extends BaseValidate<Action> {
+  public ValidateAction(boolean requireAnonUserId) {
+    super(Action.class, requireAnonUserId);
+  }
 
   @Override
   public void processElement(
       Action action, ProcessFunction<Action, Action>.Context ctx, Collector<Action> out)
       throws Exception {
     ImmutableList.Builder<ValidationError> errors = ImmutableList.builder();
-    if (action.getUserInfo().getLogUserId().isEmpty()) {
-      errors.add(createError(action, ErrorType.MISSING_FIELD, Field.LOG_USER_ID));
-    }
+    validateAnonUserId(action, action.getUserInfo(), errors);
     if (action.getImpressionId().isEmpty()
         && action.getInsertionId().isEmpty()
         && action.getContentId().isEmpty()
@@ -47,7 +48,7 @@ public class ValidateAction extends BaseValidate<Action> {
     return ValidationError.newBuilder()
         .setRecordType(RecordType.ACTION)
         .setPlatformId(action.getPlatformId())
-        .setLogUserId(action.getUserInfo().getLogUserId())
+        .setAnonUserId(action.getUserInfo().getAnonUserId())
         .setViewId(action.getViewId())
         .setRequestId(action.getRequestId())
         .setResponseInsertionId(action.getInsertionId())

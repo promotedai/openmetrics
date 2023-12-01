@@ -8,22 +8,31 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.promoted.metrics.logprocessor.common.functions.KeyUtil;
 import ai.promoted.metrics.logprocessor.common.functions.inferred.AbstractMergeDetails.MissingEvent;
 import ai.promoted.metrics.logprocessor.common.util.DebugIds;
+import ai.promoted.metrics.logprocessor.common.util.TrackingUtil;
 import ai.promoted.proto.common.ClientInfo;
 import ai.promoted.proto.common.Timing;
 import ai.promoted.proto.delivery.Insertion;
 import ai.promoted.proto.delivery.Request;
 import ai.promoted.proto.delivery.Response;
 import ai.promoted.proto.event.Action;
+import ai.promoted.proto.event.AttributedAction;
+import ai.promoted.proto.event.Attribution;
 import ai.promoted.proto.event.Cart;
 import ai.promoted.proto.event.CartContent;
 import ai.promoted.proto.event.HiddenApiRequest;
 import ai.promoted.proto.event.Impression;
-import ai.promoted.proto.event.JoinedEvent;
 import ai.promoted.proto.event.JoinedIdentifiers;
+import ai.promoted.proto.event.JoinedImpression;
+import ai.promoted.proto.event.TinyAction;
+import ai.promoted.proto.event.TinyAttributedAction;
 import ai.promoted.proto.event.TinyDeliveryLog;
-import ai.promoted.proto.event.TinyEvent;
+import ai.promoted.proto.event.TinyImpression;
+import ai.promoted.proto.event.TinyInsertion;
+import ai.promoted.proto.event.TinyInsertionCore;
+import ai.promoted.proto.event.TinyJoinedImpression;
+import ai.promoted.proto.event.TinyTouchpoint;
+import ai.promoted.proto.event.Touchpoint;
 import ai.promoted.proto.event.UnionEvent;
-import ai.promoted.proto.event.View;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.twitter.chill.protobuf.ProtobufSerializer;
@@ -38,23 +47,122 @@ import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.streaming.util.KeyedTwoInputStreamOperatorTestHarness;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /** Tests mainly for the underlying BaseInferred join implementation. */
 public class MergeActionDetailsTest {
-  private static final JoinedEvent IMPRESSION1 =
+  private static final JoinedImpression IMPRESSION1 =
       createJoinedImpression("impression1", "insertion1");
-  private static final JoinedEvent IMPRESSION2 =
+  private static final JoinedImpression IMPRESSION2 =
       createJoinedImpression("impression2", "insertion2");
 
   private static final Action ACTION1 = createAction("action1");
   private static final Action ACTION2 = createAction("action2");
 
   private KeyedTwoInputStreamOperatorTestHarness<
-          Tuple2<Long, String>, UnionEvent, TinyEvent, JoinedEvent>
+          Tuple2<Long, String>, UnionEvent, TinyAttributedAction, AttributedAction>
       harness;
   private MergeActionDetails function;
+
+  private static <T> void assertEmpty(List<T> list) {
+    assertTrue(list.isEmpty(), () -> "List should be empty but was not, list=" + list);
+  }
+
+  private static JoinedImpression createJoinedImpression() {
+    return createJoinedImpression("impression1", "insertion1");
+  }
+
+  private static JoinedImpression createJoinedImpression(String impressionId, String insertionId) {
+    return JoinedImpression.newBuilder()
+        .setIds(
+            JoinedIdentifiers.newBuilder()
+                .setViewId("view1")
+                .setRequestId("request1")
+                .setInsertionId(insertionId)
+                .setImpressionId(impressionId))
+        .setTiming(Timing.newBuilder().setEventApiTimestamp(200))
+        .setRequest(Request.newBuilder().setTiming(Timing.newBuilder().setEventApiTimestamp(150)))
+        .setHiddenApiRequest(
+            HiddenApiRequest.newBuilder()
+                .setRequestId("request3")
+                .setTiming(Timing.newBuilder().setEventApiTimestamp(150))
+                .setClientInfo(ClientInfo.getDefaultInstance())
+                .build())
+        // TODO - add HiddenApiRequest.
+        .setResponse(Response.getDefaultInstance())
+        .setResponseInsertion(Insertion.newBuilder().setContentId("content1"))
+        .setImpression(
+            Impression.newBuilder().setTiming(Timing.newBuilder().setEventApiTimestamp(200)))
+        .build();
+  }
+
+  private static AttributedAction createExpectedAttributedAction() {
+    return createExpectedAttributedActionBuilder().build();
+  }
+
+  private static AttributedAction.Builder createExpectedAttributedActionBuilder() {
+    return AttributedAction.newBuilder()
+        .setTouchpoint(Touchpoint.newBuilder().setJoinedImpression(createJoinedImpression()))
+        .setAction(
+            Action.newBuilder()
+                .setTiming(Timing.newBuilder().setEventApiTimestamp(250).setProcessingTimestamp(1L))
+                .setActionId("action1"))
+        .setAttribution(
+            Attribution.newBuilder().setModelId(AttributionModel.LATEST.id).setCreditMillis(1000));
+  }
+
+  private static TinyAttributedAction createInputTinyAttributedAction1() {
+    return TinyAttributedAction.newBuilder()
+        .setAttribution(
+            Attribution.newBuilder().setModelId(AttributionModel.LATEST.id).setCreditMillis(1000))
+        .setAction(TinyAction.newBuilder().setActionId("action1"))
+        .setTouchpoint(
+            TinyTouchpoint.newBuilder()
+                .setJoinedImpression(
+                    TinyJoinedImpression.newBuilder()
+                        .setImpression(TinyImpression.newBuilder().setImpressionId("impression1"))
+                        .setInsertion(
+                            TinyInsertion.newBuilder()
+                                .setRequestId("request1")
+                                .setCore(
+                                    TinyInsertionCore.newBuilder()
+                                        .setInsertionId("insertion1")
+                                        .setContentId("content1")))))
+        .build();
+  }
+
+  private static UnionEvent toUnionEvent(JoinedImpression impression, long logTimestamp) {
+    return UnionEvent.newBuilder()
+        .setJoinedImpression(withLogTimestamp(impression, logTimestamp))
+        .build();
+  }
+
+  private static UnionEvent toUnionEvent(Action action, long logTimestamp) {
+    return UnionEvent.newBuilder().setAction(withLogTimestamp(action, logTimestamp)).build();
+  }
+
+  private static JoinedImpression withLogTimestamp(JoinedImpression impression, long logTimestamp) {
+    JoinedImpression.Builder builder = impression.toBuilder();
+    builder.getTimingBuilder().setEventApiTimestamp(logTimestamp);
+    return builder.build();
+  }
+
+  private static Action createAction(String actionId) {
+    return Action.newBuilder().setActionId(actionId).build();
+  }
+
+  private static Action withLogTimestamp(Action action, long logTimestamp) {
+    Action.Builder builder = action.toBuilder();
+    builder.getTimingBuilder().setEventApiTimestamp(logTimestamp);
+    return builder.build();
+  }
+
+  @BeforeAll
+  public static void globalSetUp() {
+    TrackingUtil.processingTimeSupplier = () -> 1L;
+  }
 
   @BeforeEach
   public void setUp() throws Exception {
@@ -73,11 +181,12 @@ public class MergeActionDetailsTest {
         new KeyedTwoInputStreamOperatorTestHarness<>(
             new KeyedCoProcessOperator<>(function),
             KeyUtil.unionEntityKeySelector,
-            KeyUtil.TinyEventLogUserIdKey,
+            KeyUtil.tinyAttributedActionAnonUserIdKey,
             Types.TUPLE(Types.LONG, Types.STRING));
     ExecutionConfig config = harness.getExecutionConfig();
-    config.registerTypeWithKryoSerializer(JoinedEvent.class, ProtobufSerializer.class);
-    config.registerTypeWithKryoSerializer(TinyEvent.class, ProtobufSerializer.class);
+    config.registerTypeWithKryoSerializer(UnionEvent.class, ProtobufSerializer.class);
+    config.registerTypeWithKryoSerializer(AttributedAction.class, ProtobufSerializer.class);
+    config.registerTypeWithKryoSerializer(TinyAttributedAction.class, ProtobufSerializer.class);
     config.registerTypeWithKryoSerializer(TinyDeliveryLog.class, ProtobufSerializer.class);
     harness.setup();
     harness.open();
@@ -96,7 +205,7 @@ public class MergeActionDetailsTest {
 
     harness.processBothWatermarks(new Watermark(300));
 
-    harness.processElement2(createInputTinyFlatAction1(), 300);
+    harness.processElement2(createInputTinyAttributedAction1(), 300);
 
     harness.processBothWatermarks(new Watermark(350));
 
@@ -105,7 +214,7 @@ public class MergeActionDetailsTest {
     assertEquals(1, Iterables.size(function.actionMerger.idToAction.entries()));
 
     assertIterableEquals(
-        ImmutableList.of(new StreamRecord(createExpectedFlatAction(), 300)),
+        ImmutableList.of(new StreamRecord(createExpectedAttributedAction(), 300)),
         harness.extractOutputStreamRecords());
 
     harness.processBothWatermarks(new Watermark(1500));
@@ -122,7 +231,7 @@ public class MergeActionDetailsTest {
 
     harness.processBothWatermarks(new Watermark(300));
 
-    harness.processElement2(createInputTinyFlatAction1(), 300);
+    harness.processElement2(createInputTinyAttributedAction1(), 300);
 
     harness.processBothWatermarks(new Watermark(350));
 
@@ -131,7 +240,7 @@ public class MergeActionDetailsTest {
     assertEquals(2, Iterables.size(function.actionMerger.idToAction.entries()));
 
     assertIterableEquals(
-        ImmutableList.of(new StreamRecord(createExpectedFlatAction(), 300)),
+        ImmutableList.of(new StreamRecord(createExpectedAttributedAction(), 300)),
         harness.extractOutputStreamRecords());
 
     harness.processBothWatermarks(new Watermark(1500));
@@ -141,7 +250,7 @@ public class MergeActionDetailsTest {
 
   @Test
   public void fullAction_outOfOrder() throws Exception {
-    harness.processElement2(createInputTinyFlatAction1(), 100);
+    harness.processElement2(createInputTinyAttributedAction1(), 100);
 
     assertEquals(1, Iterables.size(function.timeToIncompleteEvents.entries()));
     assertEquals(
@@ -161,7 +270,7 @@ public class MergeActionDetailsTest {
     assertEquals(1, Iterables.size(function.actionMerger.idToAction.entries()));
 
     assertIterableEquals(
-        ImmutableList.of(new StreamRecord(createExpectedFlatAction(), 250)),
+        ImmutableList.of(new StreamRecord(createExpectedAttributedAction(), 250)),
         harness.extractOutputStreamRecords());
 
     harness.processBothWatermarks(new Watermark(1500));
@@ -176,7 +285,7 @@ public class MergeActionDetailsTest {
     CartContent ignoredCartContent =
         CartContent.newBuilder().setContentId("ignoredContent1").setQuantity(1).build();
     Cart cart = Cart.newBuilder().addContents(ignoredCartContent).addContents(cartContent).build();
-    assertShoppingCart(cart, createInputTinyFlatAction1(), cartContent);
+    assertShoppingCart(cart, createInputTinyAttributedAction1(), cartContent);
   }
 
   @Test
@@ -187,7 +296,7 @@ public class MergeActionDetailsTest {
         CartContent.newBuilder().setContentId("ignoredContent1").setQuantity(1).build();
     Cart cart = Cart.newBuilder().addContents(ignoredCartContent).addContents(cartContent).build();
     CartContent expectedSingleCartContent = cartContent.toBuilder().setQuantity(1).build();
-    assertShoppingCart(cart, createInputTinyFlatAction1(), expectedSingleCartContent);
+    assertShoppingCart(cart, createInputTinyAttributedAction1(), expectedSingleCartContent);
   }
 
   @Test
@@ -199,13 +308,13 @@ public class MergeActionDetailsTest {
             .build();
     CartContent expectedSingleCartContent =
         CartContent.newBuilder().setContentId("promotion1").setQuantity(2).build();
-    TinyEvent tinyAction =
-        createInputTinyFlatAction1().toBuilder().setContentId("promotion1").build();
-    assertShoppingCart(cart, tinyAction, expectedSingleCartContent);
+    TinyAttributedAction.Builder tinyActionBuilder = createInputTinyAttributedAction1().toBuilder();
+    tinyActionBuilder.getActionBuilder().setContentId("promotion1");
+    assertShoppingCart(cart, tinyActionBuilder.build(), expectedSingleCartContent);
   }
 
   public void assertShoppingCart(
-      Cart inputCart, TinyEvent tinyAction, CartContent expectedSingleCartContent)
+      Cart inputCart, TinyAttributedAction tinyAction, CartContent expectedSingleCartContent)
       throws Exception {
     harness.processElement1(toUnionEvent(IMPRESSION1, 200), 200);
     Action purchase = ACTION1.toBuilder().setCart(inputCart).build();
@@ -217,7 +326,7 @@ public class MergeActionDetailsTest {
 
     harness.processBothWatermarks(new Watermark(350));
 
-    JoinedEvent.Builder expectedFlatActionBuilder = createExpectedFlatActionBuilder();
+    AttributedAction.Builder expectedFlatActionBuilder = createExpectedAttributedActionBuilder();
     expectedFlatActionBuilder
         .getActionBuilder()
         .setCart(inputCart)
@@ -253,7 +362,7 @@ public class MergeActionDetailsTest {
 
     harness.processBothWatermarks(new Watermark(300));
 
-    harness.processElement2(createInputTinyFlatAction1(), 300);
+    harness.processElement2(createInputTinyAttributedAction1(), 300);
 
     harness.processBothWatermarks(new Watermark(330));
 
@@ -278,7 +387,7 @@ public class MergeActionDetailsTest {
 
     harness.processBothWatermarks(new Watermark(300));
 
-    harness.processElement2(createInputTinyFlatAction1(), 300);
+    harness.processElement2(createInputTinyAttributedAction1(), 300);
 
     harness.processBothWatermarks(new Watermark(330));
 
@@ -304,65 +413,6 @@ public class MergeActionDetailsTest {
     assertFalse(function.hasRequiredEvents(EnumSet.of(MissingEvent.ACTION)));
   }
 
-  private static <T> void assertEmpty(List<T> list) {
-    assertTrue(list.isEmpty(), () -> "List should be empty but was not, list=" + list);
-  }
-
-  private static JoinedEvent createJoinedImpression() {
-    return createJoinedImpression("impression1", "insertion1");
-  }
-
-  private static JoinedEvent createJoinedImpression(String impressionId, String insertionId) {
-    return JoinedEvent.newBuilder()
-        .setIds(
-            JoinedIdentifiers.newBuilder()
-                .setViewId("view1")
-                .setRequestId("request1")
-                .setInsertionId(insertionId)
-                .setImpressionId(impressionId))
-        .setTiming(Timing.newBuilder().setLogTimestamp(200))
-        .setView(View.newBuilder().setTiming(Timing.newBuilder().setLogTimestamp(100)))
-        .setRequest(Request.newBuilder().setTiming(Timing.newBuilder().setLogTimestamp(150)))
-        .setHiddenApiRequest(
-            HiddenApiRequest.newBuilder()
-                .setRequestId("request3")
-                .setTiming(Timing.newBuilder().setLogTimestamp(150))
-                .setClientInfo(ClientInfo.getDefaultInstance())
-                .build())
-        // TODO - add HiddenApiRequest.
-        .setResponse(Response.getDefaultInstance())
-        .setResponseInsertion(Insertion.newBuilder().setContentId("content1"))
-        .setImpression(Impression.newBuilder().setTiming(Timing.newBuilder().setLogTimestamp(200)))
-        .build();
-  }
-
-  private static JoinedEvent createExpectedFlatAction() {
-    return createExpectedFlatActionBuilder().build();
-  }
-
-  private static JoinedEvent.Builder createExpectedFlatActionBuilder() {
-    return createJoinedImpression().toBuilder()
-        .setTiming(Timing.newBuilder().setLogTimestamp(250))
-        .setAction(
-            Action.newBuilder()
-                .setTiming(Timing.newBuilder().setLogTimestamp(250))
-                .setActionId("action1"));
-  }
-
-  private static TinyEvent createInputTinyFlatImpression1() {
-    return TinyEvent.newBuilder()
-        .setViewId("view1")
-        .setRequestId("request1")
-        .setInsertionId("insertion1")
-        .setContentId("content1")
-        .setImpressionId("impression1")
-        .build();
-  }
-
-  private static TinyEvent createInputTinyFlatAction1() {
-    return createInputTinyFlatImpression1().toBuilder().setActionId("action1").build();
-  }
-
   private void assertEmptyStates() throws Exception {
     assertEmptyIncompleteEventStates();
     assertEmptyDetailsStates();
@@ -381,31 +431,5 @@ public class MergeActionDetailsTest {
   private void assertEmptyDetailsStates() throws Exception {
     assertEquals(0, Iterables.size(function.joinedImpressionMerger.idToJoinedImpression.entries()));
     assertEquals(0, Iterables.size(function.actionMerger.idToAction.entries()));
-  }
-
-  private static UnionEvent toUnionEvent(JoinedEvent impression, long logTimestamp) {
-    return UnionEvent.newBuilder()
-        .setJoinedImpression(withLogTimestamp(impression, logTimestamp))
-        .build();
-  }
-
-  private static UnionEvent toUnionEvent(Action action, long logTimestamp) {
-    return UnionEvent.newBuilder().setAction(withLogTimestamp(action, logTimestamp)).build();
-  }
-
-  private static JoinedEvent withLogTimestamp(JoinedEvent impression, long logTimestamp) {
-    JoinedEvent.Builder builder = impression.toBuilder();
-    builder.getTimingBuilder().setLogTimestamp(logTimestamp);
-    return builder.build();
-  }
-
-  private static Action createAction(String actionId) {
-    return Action.newBuilder().setActionId(actionId).build();
-  }
-
-  private static Action withLogTimestamp(Action action, long logTimestamp) {
-    Action.Builder builder = action.toBuilder();
-    builder.getTimingBuilder().setLogTimestamp(logTimestamp);
-    return builder.build();
   }
 }

@@ -4,7 +4,6 @@ DEPS = [
     "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/constant",
     "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/fakedatagenerator",
     "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/fakedatagenerator/content",
-    "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions",
     "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/records",
     "@com_github_promotedai_schema_internal_git//proto/common:common_java_proto",
     "@com_github_promotedai_schema_internal_git//proto/event:event_java_proto",
@@ -16,9 +15,10 @@ DEPS = [
     "@maven//:org_apache_commons_commons_lang3",
     "@maven//:com_google_guava_guava",
     "@maven//:org_apache_kafka_kafka_clients",
-    "@maven//:org_apache_logging_log4j_log4j_slf4j_impl",
-    "@maven//:org_apache_logging_log4j_log4j_api",
-    "@maven//:org_apache_logging_log4j_log4j_core",
+    "@maven_nonflink//:org_apache_logging_log4j_log4j_slf4j_impl",
+    "@maven_nonflink//:org_apache_logging_log4j_log4j_layout_template_json",
+    "@maven_nonflink//:org_apache_logging_log4j_log4j_api",
+    "@maven_nonflink//:org_apache_logging_log4j_log4j_core",
     "@maven//:info_picocli_picocli",
 ]
 
@@ -54,15 +54,15 @@ load("@io_bazel_rules_docker//container:container.bzl", "container_image")
 container_image(
     name = "LogGenerator_image",
     base = "@java_base//image",
-    files = [":LogGenerator_deploy.jar"],
     cmd = ["LogGenerator_deploy.jar"],
+    files = [":LogGenerator_deploy.jar"],
     stamp = True,
 )
 
 container_image(
     name = "ContentGenerator_image",
     base = "@java_base//image",
-    files = [":ContentGenerator_deploy.jar"],
     cmd = ["ContentGenerator_deploy.jar"],
+    files = [":ContentGenerator_deploy.jar"],
     stamp = True,
 )

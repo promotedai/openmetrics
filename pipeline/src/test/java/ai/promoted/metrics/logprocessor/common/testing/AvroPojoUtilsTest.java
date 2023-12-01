@@ -52,9 +52,11 @@ public class AvroPojoUtilsTest {
             "user_info",
             ImmutableMap.<String, Object>builder()
                 .put("user_id", "")
+                .put("anon_user_id", "")
                 .put("log_user_id", "00000000-0000-0000-0000-000000000001")
                 .put("is_internal_user", false)
                 .put("ignore_usage", false)
+                .put("retained_user_id", "")
                 .build())
         .put(
             "timing",
@@ -62,6 +64,7 @@ public class AvroPojoUtilsTest {
                 .put("client_log_timestamp", timeMillis)
                 .put("event_api_timestamp", timeMillis)
                 .put("log_timestamp", 0L)
+                .put("processing_timestamp", 0L)
                 .build())
         .put("impression_id", "55555555-5555-5555-0000-000000000001")
         .put("insertion_id", "44444444-4444-4444-0000-000000000001")
@@ -78,7 +81,7 @@ public class AvroPojoUtilsTest {
   @Test
   public void testFromAvroRecordToMap() throws IOException {
     File file = writeTestData("testdata", timeMillis1);
-    File files[] = {file};
+    File[] files = {file};
     ImmutableSet<GenericRecord> actual = loadAvroRecords(files);
     assertEquals(1, actual.size());
 
@@ -89,7 +92,7 @@ public class AvroPojoUtilsTest {
   public void testGetRecordMaps() throws IOException {
     File file1 = writeTestData("testdata1", timeMillis1);
     File file2 = writeTestData("testdata2", timeMillis2);
-    File files[] = {file1, file2};
+    File[] files = {file1, file2};
 
     assertEquals(
         ImmutableSet.of(getExpectedRecordMap(timeMillis1), getExpectedRecordMap(timeMillis2)),
@@ -99,7 +102,7 @@ public class AvroPojoUtilsTest {
   @Test
   public void testAssertAvroFiles_oneRecords() throws IOException {
     File file = writeTestData("testdata1", timeMillis1);
-    File files[] = {file};
+    File[] files = {file};
 
     assertAvroFiles(ImmutableSet.of(getExpectedRecordMap(timeMillis1)), files);
   }
@@ -107,7 +110,7 @@ public class AvroPojoUtilsTest {
   @Test
   public void testAssertAvroFiles_fail() throws IOException {
     File file = writeTestData("testdata1", timeMillis1);
-    File files[] = {file};
+    File[] files = {file};
     assertThrows(
         AssertionFailedError.class,
         () -> {
@@ -119,7 +122,7 @@ public class AvroPojoUtilsTest {
   public void testAssertAvroFiles_multipleRecords() throws IOException {
     File file1 = writeTestData("testdata1", timeMillis1);
     File file2 = writeTestData("testdata2", timeMillis2);
-    File files[] = {file1, file2};
+    File[] files = {file1, file2};
 
     assertAvroFiles(
         ImmutableSet.of(getExpectedRecordMap(timeMillis1), getExpectedRecordMap(timeMillis2)),

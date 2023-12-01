@@ -14,10 +14,8 @@ import ai.promoted.proto.delivery.Response;
 import ai.promoted.proto.event.CombinedDeliveryLog;
 import com.google.common.collect.ImmutableList;
 import com.twitter.chill.protobuf.ProtobufSerializer;
-import java.time.Duration;
 import org.apache.flink.api.common.typeinfo.Types;
 import org.apache.flink.api.java.tuple.Tuple2;
-import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.util.KeyedOneInputStreamOperatorTestHarness;
 import org.apache.flink.streaming.util.ProcessFunctionTestHarnesses;
@@ -75,9 +73,8 @@ public class CombineDeliveryLogTest {
     KeyedOneInputStreamOperatorTestHarness harness =
         ProcessFunctionTestHarnesses.forKeyedProcessFunction(
             combineDeliveryLog,
-            KeyUtil.deliveryLogLogUserIdKey,
+            KeyUtil.deliveryLogAnonUserIdKey,
             Types.TUPLE(Types.LONG, Types.STRING));
-    harness.setTimeCharacteristic(TimeCharacteristic.EventTime);
     harness
         .getExecutionConfig()
         .registerTypeWithKryoSerializer(DeliveryLog.class, ProtobufSerializer.class);
@@ -86,22 +83,20 @@ public class CombineDeliveryLogTest {
 
   @Test
   public void noEvents() throws Exception {
-    CombineDeliveryLog combineDeliveryLog =
-        new CombineDeliveryLog(Duration.ofMillis(5000L), DebugIds.empty());
+    CombineDeliveryLog combineDeliveryLog = new CombineDeliveryLog(DebugIds.empty());
     KeyedOneInputStreamOperatorTestHarness harness = createHarness(combineDeliveryLog);
-    harness.processWatermark(new Watermark(10000));
+    harness.processWatermark(new Watermark(100));
     assertEquals(ImmutableList.of(), harness.extractOutputValues());
     assertEquals(0, harness.numEventTimeTimers());
   }
 
   @Test
   public void oneSdk() throws Exception {
-    CombineDeliveryLog combineDeliveryLog =
-        new CombineDeliveryLog(Duration.ofMillis(5000L), DebugIds.empty());
+    CombineDeliveryLog combineDeliveryLog = new CombineDeliveryLog(DebugIds.empty());
     KeyedOneInputStreamOperatorTestHarness harness = createHarness(combineDeliveryLog);
     harness.processElement(createDeliveryLog("req1", "clientReq1", ExecutionServer.SDK), 100);
     assertEquals(1, harness.numEventTimeTimers());
-    harness.processWatermark(new Watermark(10000));
+    harness.processWatermark(new Watermark(100));
     assertEquals(
         ImmutableList.of(
             CombinedDeliveryLog.newBuilder()
@@ -113,13 +108,12 @@ public class CombineDeliveryLogTest {
 
   @Test
   public void oneApi() throws Exception {
-    CombineDeliveryLog combineDeliveryLog =
-        new CombineDeliveryLog(Duration.ofMillis(5000L), DebugIds.empty());
+    CombineDeliveryLog combineDeliveryLog = new CombineDeliveryLog(DebugIds.empty());
     KeyedOneInputStreamOperatorTestHarness harness = createHarness(combineDeliveryLog);
     harness.processElement(
         createDeliveryLog("req1", "clientReq1", ExecutionServer.API, "pagingId1"), 100);
     assertEquals(1, harness.numEventTimeTimers());
-    harness.processWatermark(new Watermark(10000));
+    harness.processWatermark(new Watermark(100));
     assertEquals(
         ImmutableList.of(
             CombinedDeliveryLog.newBuilder()
@@ -131,14 +125,14 @@ public class CombineDeliveryLogTest {
 
   @Test
   public void oneSdkAndOneApi() throws Exception {
-    CombineDeliveryLog combineDeliveryLog =
-        new CombineDeliveryLog(Duration.ofMillis(5000L), DebugIds.empty());
+    CombineDeliveryLog combineDeliveryLog = new CombineDeliveryLog(DebugIds.empty());
     KeyedOneInputStreamOperatorTestHarness harness = createHarness(combineDeliveryLog);
     harness.processElement(
         createDeliveryLog("req1", "clientReq1", ExecutionServer.API, "pagingId1"), 100);
     harness.processElement(createDeliveryLog("req2", "clientReq1", ExecutionServer.SDK), 500);
     assertEquals(1, harness.numEventTimeTimers());
-    harness.processWatermark(new Watermark(10000));
+    // The caller needs to delay the watermark.
+    harness.processWatermark(new Watermark(100));
     assertEquals(
         ImmutableList.of(
             CombinedDeliveryLog.newBuilder()
@@ -151,13 +145,13 @@ public class CombineDeliveryLogTest {
 
   @Test
   public void oneSdkAndOneApi_withoutPagingId() throws Exception {
-    CombineDeliveryLog combineDeliveryLog =
-        new CombineDeliveryLog(Duration.ofMillis(5000L), DebugIds.empty());
+    CombineDeliveryLog combineDeliveryLog = new CombineDeliveryLog(DebugIds.empty());
     KeyedOneInputStreamOperatorTestHarness harness = createHarness(combineDeliveryLog);
     harness.processElement(createDeliveryLog("req1", "clientReq1", ExecutionServer.API), 100);
     harness.processElement(createDeliveryLog("req2", "clientReq1", ExecutionServer.SDK), 500);
     assertEquals(1, harness.numEventTimeTimers());
-    harness.processWatermark(new Watermark(10000));
+    // The caller needs to delay the watermark.
+    harness.processWatermark(new Watermark(100));
     assertEquals(
         ImmutableList.of(
             CombinedDeliveryLog.newBuilder()
@@ -171,15 +165,15 @@ public class CombineDeliveryLogTest {
   @Test
   public void expectedMultipleSdkAndMultipleApi() throws Exception {
     // This case can happen when we log duplicate records.
-    CombineDeliveryLog combineDeliveryLog =
-        new CombineDeliveryLog(Duration.ofMillis(5000L), DebugIds.empty());
+    CombineDeliveryLog combineDeliveryLog = new CombineDeliveryLog(DebugIds.empty());
     KeyedOneInputStreamOperatorTestHarness harness = createHarness(combineDeliveryLog);
     harness.processElement(createDeliveryLog("req1", "clientReq1", ExecutionServer.API), 100);
     harness.processElement(createDeliveryLog("req1", "clientReq1", ExecutionServer.API), 200);
     harness.processElement(createDeliveryLog("req2", "clientReq1", ExecutionServer.SDK), 600);
     harness.processElement(createDeliveryLog("req2", "clientReq1", ExecutionServer.SDK), 700);
     assertEquals(1, harness.numEventTimeTimers());
-    harness.processWatermark(new Watermark(10000));
+    // The caller needs to delay the watermark.
+    harness.processWatermark(new Watermark(100));
     assertEquals(
         ImmutableList.of(
             CombinedDeliveryLog.newBuilder()
@@ -193,15 +187,15 @@ public class CombineDeliveryLogTest {
   @Test
   public void unexpectedMultipleSdkAndMultipleApi() throws Exception {
     // This could happen if the API is used incorrectly or if the client code has bugs.
-    CombineDeliveryLog combineDeliveryLog =
-        new CombineDeliveryLog(Duration.ofMillis(5000L), DebugIds.empty());
+    CombineDeliveryLog combineDeliveryLog = new CombineDeliveryLog(DebugIds.empty());
     KeyedOneInputStreamOperatorTestHarness harness = createHarness(combineDeliveryLog);
     harness.processElement(createDeliveryLog("req1", "clientReq1", ExecutionServer.API), 100);
     harness.processElement(createDeliveryLog("req2", "clientReq1", ExecutionServer.API), 200);
     harness.processElement(createDeliveryLog("req3", "clientReq1", ExecutionServer.SDK), 600);
     harness.processElement(createDeliveryLog("req4", "clientReq1", ExecutionServer.SDK), 700);
     assertEquals(1, harness.numEventTimeTimers());
-    harness.processWatermark(new Watermark(10000));
+    // The caller needs to delay the watermark.
+    harness.processWatermark(new Watermark(100));
     assertEquals(
         ImmutableList.of(
             CombinedDeliveryLog.newBuilder()
@@ -215,8 +209,7 @@ public class CombineDeliveryLogTest {
   @Test
   public void lowerPriDoesNotGetSet() throws Exception {
     // This case can happen when we log duplicate records.
-    CombineDeliveryLog combineDeliveryLog =
-        new CombineDeliveryLog(Duration.ofMillis(5000L), DebugIds.empty());
+    CombineDeliveryLog combineDeliveryLog = new CombineDeliveryLog(DebugIds.empty());
     KeyedOneInputStreamOperatorTestHarness harness = createHarness(combineDeliveryLog);
     harness.processElement(createDeliveryLog("req1", "clientReq1", ExecutionServer.API), 100);
     harness.processElement(
@@ -227,7 +220,8 @@ public class CombineDeliveryLogTest {
         createDeliveryLog("req4", "clientReq1", ExecutionServer.SDK, ClientInfo.TrafficType.REPLAY),
         700);
     assertEquals(1, harness.numEventTimeTimers());
-    harness.processWatermark(new Watermark(10000));
+    // The caller needs to delay the watermark.
+    harness.processWatermark(new Watermark(100));
     assertEquals(
         ImmutableList.of(
             CombinedDeliveryLog.newBuilder()
@@ -241,15 +235,15 @@ public class CombineDeliveryLogTest {
   @Test
   public void variety() throws Exception {
     // This could happen if the API is used incorrectly or if the client code has bugs.
-    CombineDeliveryLog combineDeliveryLog =
-        new CombineDeliveryLog(Duration.ofMillis(5000L), DebugIds.empty());
+    CombineDeliveryLog combineDeliveryLog = new CombineDeliveryLog(DebugIds.empty());
     KeyedOneInputStreamOperatorTestHarness harness = createHarness(combineDeliveryLog);
     harness.processElement(createDeliveryLog("req1", "clientReq1", ExecutionServer.API), 100);
     harness.processElement(createDeliveryLog("req2", "clientReq2", ExecutionServer.API), 200);
     harness.processElement(createDeliveryLog("req3", "clientReq2", ExecutionServer.SDK), 600);
     harness.processElement(createDeliveryLog("req4", "clientReq3", ExecutionServer.SDK), 700);
     assertEquals(3, harness.numEventTimeTimers());
-    harness.processWatermark(new Watermark(10000));
+    // The caller needs to delay the watermark.
+    harness.processWatermark(new Watermark(700));
     assertEquals(
         ImmutableList.of(
             CombinedDeliveryLog.newBuilder()
@@ -268,13 +262,13 @@ public class CombineDeliveryLogTest {
 
   @Test
   public void canReuseClientRequestIdAfterWindow() throws Exception {
-    CombineDeliveryLog combineDeliveryLog =
-        new CombineDeliveryLog(Duration.ofMillis(5000L), DebugIds.empty());
+    CombineDeliveryLog combineDeliveryLog = new CombineDeliveryLog(DebugIds.empty());
     KeyedOneInputStreamOperatorTestHarness harness = createHarness(combineDeliveryLog);
     harness.processElement(createDeliveryLog("req1", "clientReq1", ExecutionServer.API), 100);
     harness.processElement(createDeliveryLog("req2", "clientReq1", ExecutionServer.SDK), 500);
     assertEquals(1, harness.numEventTimeTimers());
-    harness.processWatermark(new Watermark(10000));
+    // The caller needs to delay the watermark.
+    harness.processWatermark(new Watermark(100));
     CombinedDeliveryLog expectedCombinedDeliveryLog =
         CombinedDeliveryLog.newBuilder()
             .setApi(createDeliveryLog("req1", "clientReq1", ExecutionServer.API))
@@ -286,7 +280,7 @@ public class CombineDeliveryLogTest {
     harness.processElement(createDeliveryLog("req1", "clientReq1", ExecutionServer.API), 10100);
     harness.processElement(createDeliveryLog("req2", "clientReq1", ExecutionServer.SDK), 10500);
     assertEquals(1, harness.numEventTimeTimers());
-    harness.processWatermark(new Watermark(20000));
+    harness.processWatermark(new Watermark(10100));
     assertEquals(
         ImmutableList.of(expectedCombinedDeliveryLog, expectedCombinedDeliveryLog),
         harness.extractOutputValues());

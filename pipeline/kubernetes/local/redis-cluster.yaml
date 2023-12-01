@@ -1,0 +1,21 @@
+# The node math is obtuse:
+# - `cluster.nodes` specifies the total number of primary and replica nodes
+# - `cluster.replicas` specifies how many replicas each primary node gets
+#
+# Example settings:
+# - For `cluster.nodes`=6 and `cluster.replicas`=1, there will be 3 primaries and 3 replicas.
+# - For `cluster.nodes`=3 and `cluster.replicas`=0, there will be 3 primaries and 0 replicas.
+#
+# Note that 3 is the minimum number of primaries in a Redis Cluster. (Probably due to quorum.)
+#
+# Port-forwarding for manual access to the Redis Cluster is annoying because of how redirection is
+# done. Instead, you can run:
+#   kubectl run --namespace $NAMESPACE redis-cluster-client --rm --tty -i --restart='Never' --image docker.io/bitnami/redis-cluster:7.0.11-debian-11-r0 -- bash
+# And then inside that shell:
+#   redis-cli -c -h redis-cluster
+
+cluster:
+  nodes: 3
+  replicas: 0
+persistence:
+  size: 1Gi

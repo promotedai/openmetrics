@@ -26,8 +26,11 @@ java_junit5_test(
         "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/counter:counter_job",
         "//pipeline/src/main/java/com/flexport/bazeljunit5",
         "@com_github_promotedai_schema_internal_git//proto/delivery/private/features:features_java_proto",
+        "@com_github_promotedai_schema_internal_git//proto/event:event_java_proto",
+        "@com_google_protobuf//:protobuf_java",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_truth_truth",
+        "@maven//:org_apache_flink_flink_runtime",
         "@maven//:org_mockito_mockito_core",
     ],
 )
@@ -35,8 +38,10 @@ java_junit5_test(
 # Use java_test after bazel officially support junit5
 java_junit5_test(
     name = "minicluster_tests",
-    timeout = "long",
+    timeout = "short",
     srcs = glob(["*MiniclusterTest.java"]),
+    # TODO - PRO-4436
+    flaky = True,
     jvm_flags = [
         "-Dlog4j.configurationFile=resources/log4j2-test.xml",
     ],
@@ -48,12 +53,14 @@ java_junit5_test(
     deps = [
         "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/counter",
         "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions/inferred",
         "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions/sink",
         "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/job/testing",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/model:avro",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/queryablestate",
         "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/testing",
         "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/util",
         "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/counter:counter_job",
-        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/raw/model:avro",
         "//pipeline/src/main/java/com/flexport/bazeljunit5",
         "@com_github_promotedai_schema_internal_git//proto/delivery/private/features:features_java_proto",
         "@com_github_promotedai_schema_internal_git//proto/event:event_java_proto",
@@ -61,9 +68,12 @@ java_junit5_test(
         "@maven//:com_google_code_findbugs_jsr305",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_truth_truth",
+        "@maven//:io_lettuce_lettuce_core",
+        "@maven//:org_apache_flink_flink_connector_files",
         "@maven//:org_apache_flink_flink_core",
         "@maven//:org_apache_flink_flink_streaming_java",
-        "@maven//:org_apache_logging_log4j_log4j_api",
-        "@maven//:org_apache_logging_log4j_log4j_core",
+        "@maven_neverlink//:org_apache_logging_log4j_log4j_api",
+        "@maven_test//:org_testcontainers_junit_jupiter",
+        "@maven_test//:org_testcontainers_testcontainers",
     ],
 )

@@ -1,5 +1,7 @@
 package ai.promoted.metrics.logprocessor.common.functions;
 
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableFunction;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializablePredicate;
 import java.io.IOException;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;

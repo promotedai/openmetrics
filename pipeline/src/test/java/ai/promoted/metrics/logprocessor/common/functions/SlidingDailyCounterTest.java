@@ -8,11 +8,12 @@ import ai.promoted.metrics.logprocessor.common.counter.WindowAggResult;
 import ai.promoted.metrics.logprocessor.common.util.FlatUtil;
 import ai.promoted.proto.event.Action;
 import ai.promoted.proto.event.ActionType;
+import ai.promoted.proto.event.AttributedAction;
 import ai.promoted.proto.event.CartContent;
-import ai.promoted.proto.event.JoinedEvent;
 import com.google.common.collect.FluentIterable;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import org.apache.flink.api.common.typeinfo.Types;
 import org.apache.flink.contrib.streaming.state.EmbeddedRocksDBStateBackend;
 import org.apache.flink.streaming.api.operators.KeyedProcessOperator;
@@ -21,9 +22,8 @@ import org.apache.flink.streaming.util.KeyedOneInputStreamOperatorTestHarness;
 import org.junit.jupiter.api.Test;
 
 public class SlidingDailyCounterTest {
-  private static JoinedEvent joinedEvent(Action.Builder action) {
-    return FlatUtil.setFlatAction(JoinedEvent.newBuilder(), action.build(), (tag, error) -> {})
-        .build();
+  private static AttributedAction attributedAction(Action.Builder action) {
+    return AttributedAction.newBuilder().setAction(action).build();
   }
 
   private static Action.Builder createAction(ActionType actionType, long eventTime) {
@@ -39,25 +39,30 @@ public class SlidingDailyCounterTest {
 
   @Test
   public void testCounting() throws Exception {
-    SlidingDailyCounter<String, JoinedEvent> function =
+    SlidingDailyCounter<String, AttributedAction> function =
         new SlidingDailyCounter<>(
-            Types.STRING, FlatUtil::getEventApiTimestamp, CounterUtil::getCount, true);
-    KeyedOneInputStreamOperatorTestHarness<String, JoinedEvent, WindowAggResult<String>> harness =
-        new KeyedOneInputStreamOperatorTestHarness<>(
-            new KeyedProcessOperator<>(function), FlatUtil::getActionString, Types.STRING);
+            Types.STRING,
+            action -> action.getAction().getTiming().getEventApiTimestamp(),
+            CounterUtil::getCount,
+            true);
+    KeyedOneInputStreamOperatorTestHarness<String, AttributedAction, WindowAggResult<String>>
+        harness =
+            new KeyedOneInputStreamOperatorTestHarness<>(
+                new KeyedProcessOperator<>(function), FlatUtil::getActionString, Types.STRING);
 
     harness.setStateBackend(new EmbeddedRocksDBStateBackend());
     harness.open();
 
-    harness.processElement(joinedEvent(createAction(ActionType.UNKNOWN_ACTION_TYPE, 10)), 10);
+    harness.processElement(attributedAction(createAction(ActionType.UNKNOWN_ACTION_TYPE, 10)), 10);
 
-    harness.processWatermark(function.emitWindow - 10);
+    harness.processWatermark(function.windowSlide - 10);
     assertEquals(4, harness.numEventTimeTimers());
 
     harness.processElement(
-        joinedEvent(createAction("window border", function.emitWindow)), function.emitWindow);
+        attributedAction(createAction("window border", function.windowSlide)),
+        function.windowSlide);
 
-    harness.processWatermark(function.emitWindow + 20);
+    harness.processWatermark(function.windowSlide + 20);
     assertEquals(7, harness.numEventTimeTimers());
     FluentIterable<StreamRecord<WindowAggResult<?>>> expected = FluentIterable.of();
     expected =
@@ -75,10 +80,10 @@ public class SlidingDailyCounterTest {
     assertIterableEquals(expected, harness.extractOutputStreamRecords());
 
     harness.processElement(
-        joinedEvent(createAction(ActionType.NAVIGATE, Duration.ofHours(11).toMillis())),
+        attributedAction(createAction(ActionType.NAVIGATE, Duration.ofHours(11).toMillis())),
         Duration.ofHours(11).toMillis());
     harness.processElement(
-        joinedEvent(createAction("1d border", Duration.ofHours(24).toMillis())),
+        attributedAction(createAction("1d border", Duration.ofHours(24).toMillis())),
         Duration.ofHours(24).toMillis());
 
     harness.processWatermark(Duration.ofHours(24).toMillis());
@@ -133,7 +138,7 @@ public class SlidingDailyCounterTest {
     assertIterableEquals(expected, harness.extractOutputStreamRecords());
 
     harness.processElement(
-        joinedEvent(createAction(ActionType.NAVIGATE, Duration.ofHours(33).toMillis())),
+        attributedAction(createAction(ActionType.NAVIGATE, Duration.ofHours(33).toMillis())),
         Duration.ofHours(33).toMillis());
 
     harness.processWatermark(Duration.ofHours(37).toMillis());
@@ -198,7 +203,7 @@ public class SlidingDailyCounterTest {
 
     // Like at 4d.
     harness.processElement(
-        joinedEvent(createAction(ActionType.LIKE, Duration.ofHours(96).toMillis())),
+        attributedAction(createAction(ActionType.LIKE, Duration.ofHours(96).toMillis())),
         Duration.ofHours(96).toMillis());
 
     harness.processWatermark(Duration.ofDays(6).toMillis());
@@ -222,7 +227,7 @@ public class SlidingDailyCounterTest {
     assertIterableEquals(expected, harness.extractOutputStreamRecords());
 
     harness.processElement(
-        joinedEvent(createAction("7d border", Duration.ofHours(168).toMillis())),
+        attributedAction(createAction("7d border", Duration.ofHours(168).toMillis())),
         Duration.ofHours(168).toMillis());
 
     harness.processWatermark(Duration.ofDays(9).toMillis());
@@ -327,7 +332,7 @@ public class SlidingDailyCounterTest {
     // Like every day from day 32 through 61 (inclusive, so 30 days).
     for (int i = 32; i < 62; i++) {
       harness.processElement(
-          joinedEvent(createAction(ActionType.LIKE, Duration.ofDays(i).toMillis())),
+          attributedAction(createAction(ActionType.LIKE, Duration.ofDays(i).toMillis())),
           Duration.ofDays(i).toMillis());
     }
 
@@ -514,22 +519,26 @@ public class SlidingDailyCounterTest {
 
   @Test
   public void testShoppingCartCount() throws Exception {
-    SlidingDailyCounter<String, JoinedEvent> function =
+    SlidingDailyCounter<String, AttributedAction> function =
         new SlidingDailyCounter<>(
-            Types.STRING, FlatUtil::getEventApiTimestamp, CounterUtil::getCount, false);
-    KeyedOneInputStreamOperatorTestHarness<String, JoinedEvent, WindowAggResult<String>> harness =
-        new KeyedOneInputStreamOperatorTestHarness<>(
-            new KeyedProcessOperator<>(function), FlatUtil::getActionString, Types.STRING);
+            Types.STRING,
+            action -> action.getAction().getTiming().getEventApiTimestamp(),
+            CounterUtil::getCount,
+            false);
+    KeyedOneInputStreamOperatorTestHarness<String, AttributedAction, WindowAggResult<String>>
+        harness =
+            new KeyedOneInputStreamOperatorTestHarness<>(
+                new KeyedProcessOperator<>(function), FlatUtil::getActionString, Types.STRING);
 
     harness.open();
 
     harness.processElement(
-        joinedEvent(
+        attributedAction(
             createAction(ActionType.PURCHASE, 10)
                 .setSingleCartContent(CartContent.newBuilder().setQuantity(5))),
         10);
 
-    harness.processWatermark(function.emitWindow + 20);
+    harness.processWatermark(function.windowSlide + 20);
     assertEquals(3, harness.numEventTimeTimers());
     FluentIterable<StreamRecord<WindowAggResult<?>>> expected = FluentIterable.of();
     expected =
@@ -547,24 +556,36 @@ public class SlidingDailyCounterTest {
 
   @Test
   public void testToWindowKey() {
-    SlidingDailyCounter<String, JoinedEvent> function =
+    SlidingDailyCounter<String, AttributedAction> function =
         new SlidingDailyCounter<>(
-            Types.STRING, FlatUtil::getEventApiTimestamp, CounterUtil::getCount, false);
-    // 1979-08-29 07:00:00.000
-    assertEquals(1979082908, function.toWindowKey(SlidingCounter.toDateTime(304758000000L)));
-    // 2001-09-11 12:46:00.000
-    assertEquals(2001091116, function.toWindowKey(SlidingCounter.toDateTime(1000212360000L)));
-    // 2020-02-29 23:59:59.999
-    assertEquals(2020030100, function.toWindowKey(SlidingCounter.toDateTime(1583020799999L)));
+            Types.STRING,
+            action -> action.getAction().getTiming().getEventApiTimestamp(),
+            CounterUtil::getCount,
+            false);
+    // 304758000000L = GMT: Wednesday, August 29, 1979 7:00:00 AM
+    // 304761600000L = GMT: Wednesday, August 29, 1979 8:00:00 AM
+    assertEquals(304761600000L, function.toWindowKey(SlidingCounter.toDateTime(304758000000L)));
+    // 1000212360000L = GMT: Tuesday, September 11, 2001 12:46:00 PM
+    // 1000224000000L = GMT: Tuesday, September 11, 2001 4:00:00 PM
+    assertEquals(1000224000000L, function.toWindowKey(SlidingCounter.toDateTime(1000212360000L)));
+    // 1583020799999L = GMT: Saturday, February 29, 2020 11:59:59.999 PM
+    // 1583020800000L = GMT: Sunday, March 1, 2020 12:00:00 AM
+    assertEquals(1583020800000L, function.toWindowKey(SlidingCounter.toDateTime(1583020799999L)));
   }
 
   @Test
   public void testWindowDateTime() {
-    SlidingDailyCounter<String, JoinedEvent> function =
+    SlidingDailyCounter<String, AttributedAction> function =
         new SlidingDailyCounter<>(
-            Types.STRING, FlatUtil::getEventApiTimestamp, CounterUtil::getCount, false);
-    assertEquals(LocalDateTime.of(1979, 8, 29, 4, 0), function.windowDateTime(1979082904));
-    assertEquals(LocalDateTime.of(2001, 9, 11, 12, 0), function.windowDateTime(2001091112));
-    assertEquals(LocalDateTime.of(2020, 2, 29, 20, 0), function.windowDateTime(2020022920));
+            Types.STRING,
+            action -> action.getAction().getTiming().getEventApiTimestamp(),
+            CounterUtil::getCount,
+            false);
+    assertEquals(
+        LocalDateTime.of(1979, 8, 29, 7, 0).toInstant(ZoneOffset.UTC),
+        function.windowDateTime(304758000000L));
+    assertEquals(
+        LocalDateTime.of(2001, 9, 11, 12, 46).toInstant(ZoneOffset.UTC),
+        function.windowDateTime(1000212360000L));
   }
 }

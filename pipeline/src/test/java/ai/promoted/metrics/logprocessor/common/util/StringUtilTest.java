@@ -3,6 +3,7 @@ package ai.promoted.metrics.logprocessor.common.util;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.common.collect.ImmutableMap;
@@ -41,6 +42,14 @@ public class StringUtilTest {
     assertEquals("b", StringUtil.firstNotEmpty("", "b", "c"));
     assertEquals("c", StringUtil.firstNotEmpty("", "", "c"));
     assertEquals("", StringUtil.firstNotEmpty("", "", ""));
+  }
+
+  @Test
+  public void firstNotNull() {
+    assertEquals("a", StringUtil.firstNotNull(null, "a", "b"));
+    assertEquals("b", StringUtil.firstNotNull(null, null, "b"));
+    assertEquals("b", StringUtil.firstNotNull(null, null, "b", null));
+    assertNull(StringUtil.firstNotNull(null, null, null));
   }
 
   @Test

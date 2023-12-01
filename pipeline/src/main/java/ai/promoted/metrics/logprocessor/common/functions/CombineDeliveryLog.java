@@ -1,11 +1,12 @@
 package ai.promoted.metrics.logprocessor.common.functions;
 
 import static ai.promoted.metrics.logprocessor.common.util.DeliveryLogUtil.getTrafficPriority;
+import static ai.promoted.metrics.logprocessor.common.util.PagingIdUtil.isPagingIdEmpty;
 
 import ai.promoted.metrics.logprocessor.common.util.DebugIds;
+import ai.promoted.metrics.logprocessor.common.util.LogUtil;
 import ai.promoted.proto.delivery.DeliveryLog;
 import ai.promoted.proto.event.CombinedDeliveryLog;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.flink.api.common.state.MapState;
@@ -23,21 +24,23 @@ import org.apache.logging.log4j.Logger;
  * Combines API and SDK DeliveryLogs so we can have both info on our flat records.
  *
  * <p>Keys by Tuple2<platformId, logUserId> in case we can optimize Flink later to not re-shuffle
- * keys across operations. This also keeps our keys consistent with other operation.
+ * keys across operations. This also keeps our keys consistent with other operation. TODO - evaluate
+ * changing this to requestId.
+ *
+ * <p>The output event time should be the first DeliveryLog for the key. The code that creates this
+ * operator needs to delay the watermark.
  */
 public class CombineDeliveryLog
     extends KeyedProcessFunction<Tuple2<Long, String>, DeliveryLog, CombinedDeliveryLog> {
   private static final Logger LOGGER = LogManager.getLogger(CombineDeliveryLog.class);
 
   // The sliding window we use to check for the same clientRequestId.
-  private final Duration windowDuration;
   private final DebugIds debugIds;
   // There might be edge cases if clients reuse clientRequestId outside of the combine window.
   private MapState<String, CombinedDeliveryLog> clientRequestIdToCombinedDeliveryLog;
   private MapState<Long, List<String>> timerToClientRequestId;
 
-  public CombineDeliveryLog(Duration windowDuration, DebugIds debugIds) {
-    this.windowDuration = windowDuration;
+  public CombineDeliveryLog(DebugIds debugIds) {
     this.debugIds = debugIds;
   }
 
@@ -45,11 +48,12 @@ public class CombineDeliveryLog
   public void processElement(
       DeliveryLog input, Context ctx, Collector<CombinedDeliveryLog> collector) throws Exception {
     if (debugIds.matches(input)) {
+      String inputString = LogUtil.truncate(input.toString());
       LOGGER.info(
           "CombineDeliveryLog processElement ts={}\nwatermark={}\ndeliveryLogInput={}",
           ctx.timestamp(),
           ctx.timerService().currentWatermark(),
-          input);
+          inputString);
     }
 
     String clientRequestId = input.getRequest().getClientRequestId();
@@ -58,11 +62,12 @@ public class CombineDeliveryLog
       CombinedDeliveryLog combinedDeliveryLog =
           mergeDeliveryLog(CombinedDeliveryLog.newBuilder(), input).build();
       if (debugIds.matches(combinedDeliveryLog)) {
+        String combinedDeliveryLogString = LogUtil.truncate(combinedDeliveryLog.toString());
         LOGGER.info(
             "CombineDeliveryLog collect ts={}\nwatermark={}\ncombinedDeliveryLog={}",
             ctx.timestamp(),
             ctx.timerService().currentWatermark(),
-            combinedDeliveryLog);
+            combinedDeliveryLogString);
       }
       collector.collect(combinedDeliveryLog);
       return;
@@ -73,24 +78,14 @@ public class CombineDeliveryLog
     if (combinedDeliveryLog == null) {
       combinedDeliveryLog = CombinedDeliveryLog.getDefaultInstance();
       // Add the clientRequestId to the timer map.
-      Long futureTime = ctx.timestamp() + windowDuration.toMillis();
-      List<String> timerClientRequestIds = timerToClientRequestId.get(futureTime);
+      long timer = ctx.timestamp();
+      List<String> timerClientRequestIds = timerToClientRequestId.get(timer);
       if (timerClientRequestIds == null) {
         timerClientRequestIds = new ArrayList<>();
-        // TODO - remove try-catch block after finding bad key issue.
-        try {
-          ctx.timerService().registerEventTimeTimer(futureTime);
-        } catch (IllegalArgumentException e) {
-          throw new IllegalArgumentException(
-              "Issue with registerEventTimeTimer for key="
-                  + ctx.getCurrentKey()
-                  + ", input="
-                  + input,
-              e);
-        }
+        ctx.timerService().registerEventTimeTimer(timer);
       }
       timerClientRequestIds.add(clientRequestId);
-      timerToClientRequestId.put(futureTime, timerClientRequestIds);
+      timerToClientRequestId.put(timer, timerClientRequestIds);
     }
     combinedDeliveryLog = mergeDeliveryLog(combinedDeliveryLog.toBuilder(), input).build();
     clientRequestIdToCombinedDeliveryLog.put(clientRequestId, combinedDeliveryLog);
@@ -105,11 +100,12 @@ public class CombineDeliveryLog
       CombinedDeliveryLog combinedDeliveryLog =
           clientRequestIdToCombinedDeliveryLog.get(clientRequestId);
       if (debugIds.matches(combinedDeliveryLog)) {
+        String combinedDeliveryLogString = LogUtil.truncate(combinedDeliveryLog.toString());
         LOGGER.info(
             "CombineDeliveryLog onTimer collect ts={}\nwatermark={}\ncombinedDeliveryLog={}",
             ctx.timestamp(),
             ctx.timerService().currentWatermark(),
-            combinedDeliveryLog);
+            combinedDeliveryLogString);
       }
       out.collect(combinedDeliveryLog);
       clientRequestIdToCombinedDeliveryLog.remove(clientRequestId);
@@ -141,10 +137,11 @@ public class CombineDeliveryLog
     switch (deliveryLog.getExecution().getExecutionServer()) {
       case SDK:
         if (builder.hasSdk() && !hasSameRequestId(builder.getSdk(), deliveryLog)) {
+          String deliveryLogString = LogUtil.truncate(deliveryLog.toString());
           LOGGER.warn(
               "Encountered multiple SDK DeliveryLogs with the same clientRequestId; first={}, second={}",
               builder.getSdk(),
-              deliveryLog);
+              deliveryLogString);
         }
         // This code is in here more as future proofing.  E.g. if we accidentally send sdk traffic
         // again through production.
@@ -161,10 +158,11 @@ public class CombineDeliveryLog
         // TODO - factor in shadow traffic.
 
         if (builder.hasApi() && !hasSameRequestId(builder.getApi(), deliveryLog)) {
+          String deliveryLogString = LogUtil.truncate(deliveryLog.toString());
           LOGGER.warn(
               "Encountered multiple API DeliveryLogs with the same clientRequestId; first={}, second={}",
               builder.getApi(),
-              deliveryLog);
+              deliveryLogString);
         }
         if (!builder.hasApi()
             || getTrafficPriority(deliveryLog) >= getTrafficPriority(builder.getApi())) {
@@ -197,8 +195,8 @@ public class CombineDeliveryLog
   private static CombinedDeliveryLog.Builder fixSdkResponse(CombinedDeliveryLog.Builder builder) {
     if (builder.hasApi()
         && builder.hasSdk()
-        && builder.getSdk().getResponse().getPagingInfo().getPagingId().isEmpty()
-        && !builder.getApi().getResponse().getPagingInfo().getPagingId().isEmpty()) {
+        && isPagingIdEmpty(builder.getSdk().getResponse())
+        && !isPagingIdEmpty(builder.getApi().getResponse())) {
       builder
           .getSdkBuilder()
           .getResponseBuilder()

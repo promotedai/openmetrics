@@ -1,0 +1,12 @@
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: flink-job
+spec:
+# We need more resources to run the raw job since it reads from 10+ Kafka topics
+  jobManager:
+    resource:
+      cpu: 0.5
+  taskManager:
+    resource:
+      cpu: 0.5

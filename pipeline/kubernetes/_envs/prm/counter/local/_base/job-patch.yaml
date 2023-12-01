@@ -1,0 +1,10 @@
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: flink-job
+spec:
+  # We need more resources to run the counter job since it reads from 10+ Kafka topics
+  taskManager:
+    resource:
+      cpu: 2.0
+      memory: "3072m"

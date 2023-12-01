@@ -1,0 +1,95 @@
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: flink-job
+spec:
+  image: bazel/pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/sqlrunner:SqlRunnerJob_image
+  flinkVersion: v1_17
+  ingress:
+    template: "/{{namespace}}/{{name}}(/|$)(.*)"
+    className: "nginx"
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: "/$2"
+  serviceAccount: flink
+  podTemplate:
+    spec:
+      containers:
+        - name: flink-main-container
+          ports:
+            - containerPort: 12345
+              name: queryable-state
+              protocol: TCP
+#          lifecycle:
+#            postStart:
+#              exec:
+#                command:
+#                  - /bin/bash
+#                  - -c
+##                  - mkdir -p /opt/flink/plugins/s3-fs-hadoop/ && cp /opt/flink/opt/flink-s3-fs-hadoop-*.jar /opt/flink/plugins/s3-fs-hadoop/ &&
+#                  - wget https://repo1.maven.org/maven2/com/github/oshi/oshi-core/6.4.0/oshi-core-6.4.0.jar -O /opt/flink/lib/oshi-core-6.4.0.jar &&
+#                    wget https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.13.0/jna-5.13.0.jar -O /opt/flink/lib/jna-5.13.0.jar &&
+#                    wget https://repo1.maven.org/maven2/net/java/dev/jna/jna-platform/5.13.0/jna-platform-5.13.0.jar -O /opt/flink/lib/jna-platform-5.13.0.jar &&
+#                    export LD_PRELOAD=$LD_PRELOAD:/usr/lib/x86_64-linux-gnu/libjemalloc.so;
+  jobManager:
+    podTemplate:
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: task-manager-pod-template
+      spec:
+        containers:
+          - name: flink-main-container
+            volumeMounts:
+              - mountPath: /jobmanager-data
+                name: jobmanager-data
+        initContainers:
+          - name: volume-mount-hack
+            image: busybox
+            command: [ "sh", "-c", "chown -R 9999:9999 /jobmanager-data" ] # set owner to flink user(9999)
+            volumeMounts:
+              - mountPath: /jobmanager-data
+                name: jobmanager-data
+        volumes:
+          - name: jobmanager-data
+            ephemeral:
+              volumeClaimTemplate:
+                spec:
+                  accessModes: [ "ReadWriteOnce" ]
+                  storageClassName: standard
+                  resources:
+                    requests:
+                      storage: 1Gi
+  taskManager:
+    podTemplate:
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: task-manager-pod-template
+      spec:
+        containers:
+          - name: flink-main-container
+            volumeMounts:
+              - mountPath: /taskmanager-data
+                name: taskmanager-data
+        initContainers:
+          - name: volume-mount-hack
+            image: busybox
+            command: [ "sh", "-c", "chown -R 9999:9999 /taskmanager-data" ] # set owner to flink user(9999)
+            volumeMounts:
+              - mountPath: /taskmanager-data
+                name: taskmanager-data
+        volumes:
+          - name: taskmanager-data
+            ephemeral:
+              volumeClaimTemplate:
+                spec:
+                  accessModes: [ "ReadWriteOnce" ]
+                  storageClassName: standard
+                  resources:
+                    requests:
+                      storage: 1Gi
+  job:
+    jarURI: local:///opt/flink/examples/streaming/StateMachineExample.jar
+    parallelism: 1
+    upgradeMode: savepoint
+    savepointTriggerNonce: 0

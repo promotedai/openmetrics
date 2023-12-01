@@ -1,0 +1,161 @@
+[
+  {
+    "type": "record",
+    "name": "LogUserUser",
+    "doc": "A Join table between LogUser and User",
+    "namespace": "ai.promoted.metrics.common",
+    "fields": [
+      {
+        "name": "platformId",
+        "type": "long",
+        "default": 0
+      },
+      {
+        "name": "eventTimeMillis",
+        "type": "long",
+        "default": 0
+      },
+      {
+        "name": "logUserId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "userId",
+        "type": "string",
+        "default": ""
+      }
+    ]
+  },
+
+  {
+    "type": "enum",
+    "name": "ExecutionServer",
+    "doc": "Avro version of DeliveryExecution.ExecutionServer",
+    "namespace": "ai.promoted.metrics.common",
+    "symbols": ["UNKNOWN_EXECUTION_SERVER", "UNRECOGNIZED", "API", "SDK", "SIMPLE_API"]
+  },
+
+  {
+    "type": "record",
+    "name": "DeliveryLogIds",
+    "doc": "A small version of DeliveryLog with core IDs and fields.  We expect to delete this after switching to a column file format.",
+    "namespace": "ai.promoted.metrics.common",
+    "fields": [
+      {
+        "name": "platformId",
+        "type": "long",
+        "default": 0
+      },
+      {
+        "name": "eventApiTimestamp",
+        "type": "long",
+        "default": 0
+      },
+      {
+        "name": "anonUserId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "viewId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "requestId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "clientRequestId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "executionServer",
+        "type": "ai.promoted.metrics.common.ExecutionServer",
+        "default": "UNKNOWN_EXECUTION_SERVER"
+      },
+      {
+        "name": "searchQuery",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "userAgent",
+        "type": "string",
+        "default": ""
+      }
+    ]
+  },
+
+  {
+    "type": "record",
+    "name": "RequestInsertionIds",
+    "doc": "A small version of DeliveryLog.request.insertion with core IDs and fields.  We expect to delete this after switching to a column file format.",
+    "namespace": "ai.promoted.metrics.common",
+    "fields": [
+      {
+        "name": "platformId",
+        "type": "long"
+      },
+      {
+        "name": "eventApiTimestamp",
+        "type": "long"
+      },
+      {
+        "name": "requestId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "contentId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "retrievalRank",
+        "type": ["null", "long"]
+      }
+    ]
+  },
+
+  {
+    "type": "record",
+    "name": "ResponseInsertionIds",
+    "doc": "A small version of DeliveryLog.response.insertion with core IDs and fields.  We expect to delete this after switching to a column file format.",
+    "namespace": "ai.promoted.metrics.common",
+    "fields": [
+      {
+        "name": "platformId",
+        "type": "long",
+        "default": 0
+      },
+      {
+        "name": "eventApiTimestamp",
+        "type": "long",
+        "default": 0
+      },
+      {
+        "name": "requestId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "insertionId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "contentId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "position",
+        "type": "long"
+      }
+    ]
+  }
+]

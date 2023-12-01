@@ -67,7 +67,7 @@ public class SuffixedFileSystemTableFactory
   public DynamicTableSource createDynamicTableSource(Context context) {
     FactoryUtil.TableFactoryHelper helper = FactoryUtil.createTableFactoryHelper(this, context);
     validate(helper);
-    return new FileSystemTableSource(
+    return new PromotedFileSystemTableSource(
         context.getObjectIdentifier(),
         context.getPhysicalRowDataType(),
         context.getCatalogTable().getPartitionKeys(),

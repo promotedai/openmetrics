@@ -1,7 +1,6 @@
 package ai.promoted.metrics.logprocessor.common.job;
 
 import ai.promoted.metrics.error.MismatchError;
-import ai.promoted.proto.event.JoinedEvent;
 import com.google.auto.value.AutoValue;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
@@ -11,14 +10,13 @@ import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
  * operators.
  */
 @AutoValue
-public abstract class MergeDetailsOutputs {
-  public abstract SingleOutputStreamOperator<JoinedEvent> joinedEvent();
+public abstract class MergeDetailsOutputs<T> {
+  public abstract SingleOutputStreamOperator<T> joinedEvents();
 
   public abstract DataStream<MismatchError> mismatchErrors();
 
-  public static MergeDetailsOutputs create(
-      SingleOutputStreamOperator<JoinedEvent> joinedEvent,
-      DataStream<MismatchError> mismatchErrors) {
-    return new AutoValue_MergeDetailsOutputs(joinedEvent, mismatchErrors);
+  public static <T> MergeDetailsOutputs<T> create(
+      SingleOutputStreamOperator<T> joinedEvents, DataStream<MismatchError> mismatchErrors) {
+    return new AutoValue_MergeDetailsOutputs(joinedEvents, mismatchErrors);
   }
 }

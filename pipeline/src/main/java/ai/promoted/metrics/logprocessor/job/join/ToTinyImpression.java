@@ -1,37 +1,24 @@
 package ai.promoted.metrics.logprocessor.job.join;
 
 import ai.promoted.proto.event.Impression;
-import ai.promoted.proto.event.TinyEvent;
-import java.util.List;
+import ai.promoted.proto.event.TinyCommonInfo;
+import ai.promoted.proto.event.TinyImpression;
 import org.apache.flink.api.common.functions.MapFunction;
 
-final class ToTinyImpression implements MapFunction<Impression, TinyEvent> {
-  private final OtherContentIdsConverter otherContentIdsConverter;
-
-  ToTinyImpression(List<String> requestInsertionOtherContentIdKeys) {
-    this.otherContentIdsConverter =
-        new OtherContentIdsConverter(requestInsertionOtherContentIdKeys);
-  }
-
+final class ToTinyImpression implements MapFunction<Impression, TinyImpression> {
   @Override
-  public TinyEvent map(Impression impression) {
-    TinyEvent.Builder tinyImpression =
-        TinyEvent.newBuilder()
-            .setPlatformId(impression.getPlatformId())
-            .setLogUserId(impression.getUserInfo().getLogUserId())
-            .setLogTimestamp(impression.getTiming().getLogTimestamp())
-            .setViewId(impression.getViewId())
-            .setRequestId(impression.getRequestId())
-            .setInsertionId(impression.getInsertionId())
-            .setContentId(impression.getContentId())
-            .setImpressionId(impression.getImpressionId());
-
-    // We don't expect customers to see this.  Customers should stick these properties onto
-    // RequestInsertions.
-    if (otherContentIdsConverter.hasKeys() && impression.hasProperties()) {
-      otherContentIdsConverter.putFromProperties(
-          tinyImpression::putOtherContentIds, impression.getProperties());
-    }
-    return tinyImpression.build();
+  public TinyImpression map(Impression impression) {
+    return TinyImpression.newBuilder()
+        .setCommon(
+            TinyCommonInfo.newBuilder()
+                .setPlatformId(impression.getPlatformId())
+                .setAnonUserId(impression.getUserInfo().getAnonUserId())
+                .setEventApiTimestamp(impression.getTiming().getEventApiTimestamp()))
+        .setViewId(impression.getViewId())
+        .setRequestId(impression.getRequestId())
+        .setInsertionId(impression.getInsertionId())
+        .setImpressionId(impression.getImpressionId())
+        .setContentId(impression.getContentId())
+        .build();
   }
 }

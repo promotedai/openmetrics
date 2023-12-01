@@ -9,8 +9,7 @@ import org.mockito.Mockito;
 public class BaseValidateTest<T> {
 
   protected static long PLATFORM_ID = 1L;
-  protected static String LOG_USER_ID = "logUser1";
-  protected static String USER_ID = "user1";
+  protected static String ANON_USER_ID = "anonUser1";
   protected static String VIEW_ID = "view1";
   protected static String REQUEST_ID = "request1";
   protected static String INSERTION_ID = "insertion1";
@@ -20,6 +19,8 @@ public class BaseValidateTest<T> {
   protected static long CLIENT_LOG_TIMESTAMP = 1L;
   protected static long EVENT_API_TIMESTAMP = 2L;
   protected static long LOG_TIMESTAMP = 3L;
+  protected Collector<T> mockOut;
+  protected ProcessFunction<T, T>.Context mockContext;
 
   protected static ai.promoted.proto.common.Timing getProtoTiming() {
     return ai.promoted.proto.common.Timing.newBuilder()
@@ -36,9 +37,6 @@ public class BaseValidateTest<T> {
         .setLogTimestamp(LOG_TIMESTAMP)
         .build();
   }
-
-  protected Collector<T> mockOut;
-  protected ProcessFunction<T, T>.Context mockContext;
 
   @BeforeEach
   public void setUp() {

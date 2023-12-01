@@ -16,31 +16,19 @@ function ephemeral_port() {
   done
 }
 
-printf "Verifying if Metrics Zookeeper is accessible and healthy..."
-zk_temp_port="$(ephemeral_port)"
-(kubectl port-forward service/zookeeper -n $LOCAL_K8S_NAMESPACE $zk_temp_port:2181 >/dev/null 2>&1) &
+printf "Verifying if Metrics Kafka is accessible and healthy..."
+kafka_temp_port="$(ephemeral_port)"
+(kubectl port-forward service/kafka -n $LOCAL_K8S_NAMESPACE $kafka_temp_port:9092 >/dev/null 2>&1) &
 kubectl_pid=$!
 sleep 5 # to avoid race
 
-zk_health_check=$(echo ruok | nc localhost $zk_temp_port)
-
-if [[ $zk_health_check == "imok" ]]; then
-  printf "Success!\n"
-else
-  printf "Failed. You may want to clean and set up again!\n"
-  exit 1
-fi
-sleep 1
-#Kill temporary Zookeeper port forward
-kill $kubectl_pid
-
-printf "Verifying if Metrics Kafka is accessible..."
-
-nc -z $MINIKUBE_IP $LOCAL_KAFKA_FIRST_PORT
-
+nc -z localhost $kafka_temp_port
 if [[ $? -eq 0 ]]; then
   printf "Success!\n"
 else
   printf "Failed. You may want to clean and set up again!\n"
   exit 1
 fi
+sleep 1
+#Kill temporary Kafka port forward
+kill $kubectl_pid

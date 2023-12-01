@@ -20,14 +20,6 @@ public class FlatOutputJobUnitTest extends BaseJobUnitTest<FlatOutputJob> {
   }
 
   @Test
-  public void getJoinJobName() {
-    FlatOutputJob job = createJob();
-    assertEquals("join-event", job.getJobName());
-    job.jobLabel = "qa-prod";
-    assertEquals("qa-prod.join-event", job.getJobName());
-  }
-
-  @Test
   public void toJoinConsumerGroupId() {
     FlatOutputJob job = createJob();
     assertEquals("joinimpression", job.toKafkaConsumerGroupId("joinimpression"));

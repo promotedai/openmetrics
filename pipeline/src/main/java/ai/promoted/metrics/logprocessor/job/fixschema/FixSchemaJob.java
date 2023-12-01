@@ -3,20 +3,22 @@ package ai.promoted.metrics.logprocessor.job.fixschema;
 import ai.promoted.metrics.datafix.TestRecord1;
 import ai.promoted.metrics.datafix.TestRecord2;
 import ai.promoted.metrics.logprocessor.common.functions.DateHourBucketAssigner;
-import ai.promoted.metrics.logprocessor.common.functions.SerializableToLongFunction;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableToLongFunction;
 import ai.promoted.metrics.logprocessor.common.job.BaseFlinkJob;
 import ai.promoted.metrics.logprocessor.common.job.FeatureFlag;
+import ai.promoted.metrics.logprocessor.common.job.FlinkSegment;
 import ai.promoted.metrics.logprocessor.common.job.S3Segment;
 import ai.promoted.metrics.logprocessor.common.s3.S3Path;
 import ai.promoted.proto.delivery.DeliveryLog;
+import ai.promoted.proto.event.AttributedAction;
 import ai.promoted.proto.event.FlatResponseInsertion;
-import ai.promoted.proto.event.JoinedEvent;
-import com.google.common.collect.ImmutableList;
-import com.google.protobuf.GeneratedMessageV3;
+import ai.promoted.proto.event.JoinedImpression;
+import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.apache.avro.Schema;
 import org.apache.avro.file.CodecFactory;
@@ -55,13 +57,6 @@ public class FixSchemaJob extends BaseFlinkJob {
 
   @FeatureFlag
   @CommandLine.Option(
-      names = {"--jobName"},
-      defaultValue = "fix-schema",
-      description = "The name of the job.")
-  public String jobName = "fix-schema";
-
-  @FeatureFlag
-  @CommandLine.Option(
       names = {"--prefix"},
       description = "The object prefix to copy.")
   public String prefix = "";
@@ -91,23 +86,25 @@ public class FixSchemaJob extends BaseFlinkJob {
   public String schema = "";
 
   public static void main(String[] args) {
-    int exitCode = new CommandLine(new FixSchemaJob()).execute(args);
-    System.exit(exitCode);
+    executeMain(new FixSchemaJob(), args);
   }
 
   // TODO - change from stream job to batch job.
 
   private static Schema getSchema(String schemaProto) {
     switch (schemaProto) {
+      case "AttributedAction":
+        return ai.promoted.metrics.logprocessor.common.avro.PromotedProtobufData.get()
+            .getSchema(AttributedAction.class);
       case "DeliveryLog":
-        return ai.promoted.metrics.logprocessor.common.avro.FixedProtobufData.get()
+        return ai.promoted.metrics.logprocessor.common.avro.PromotedProtobufData.get()
             .getSchema(DeliveryLog.class);
       case "FlatResponseInsertion":
-        return ai.promoted.metrics.logprocessor.common.avro.FixedProtobufData.get()
+        return ai.promoted.metrics.logprocessor.common.avro.PromotedProtobufData.get()
             .getSchema(FlatResponseInsertion.class);
-      case "JoinedEvent":
-        return ai.promoted.metrics.logprocessor.common.avro.FixedProtobufData.get()
-            .getSchema(JoinedEvent.class);
+      case "JoinedImpression":
+        return ai.promoted.metrics.logprocessor.common.avro.PromotedProtobufData.get()
+            .getSchema(JoinedImpression.class);
       case "TestRecord1":
         // For testing since it has a smaller schema.
         return TestRecord1.SCHEMA$;
@@ -120,15 +117,13 @@ public class FixSchemaJob extends BaseFlinkJob {
   }
 
   @Override
-  public Integer call() throws Exception {
-    validateArgs();
-    startJob();
-    return 0;
+  public Set<FlinkSegment> getInnerFlinkSegments() {
+    return ImmutableSet.of(s3);
   }
 
   @Override
   public void validateArgs() {
-    s3.validateArgs();
+    super.validateArgs();
     Preconditions.checkArgument(!prefix.isBlank(), "--prefix must be specified.");
     Preconditions.checkArgument(!startDt.isBlank(), "--startdt must be specified.");
     Preconditions.checkArgument(!endDt.isBlank(), "--enddt must be specified.");
@@ -137,16 +132,12 @@ public class FixSchemaJob extends BaseFlinkJob {
   }
 
   @Override
-  public List<Class<? extends GeneratedMessageV3>> getProtoClasses() {
-    return ImmutableList.<Class<? extends GeneratedMessageV3>>builder().build();
+  protected String getDefaultBaseJobName() {
+    return "fix-schema";
   }
 
   @Override
-  public String getJobName() {
-    return prefixJobLabel(jobName);
-  }
-
-  private void startJob() throws Exception {
+  protected void startJob() throws Exception {
     StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
     env.setRuntimeMode(RuntimeExecutionMode.BATCH);
     configureExecutionEnvironment(env, parallelism, maxParallelism);
@@ -161,7 +152,7 @@ public class FixSchemaJob extends BaseFlinkJob {
   }
 
   void fixSchema(StreamExecutionEnvironment env) throws IOException {
-    String inputS3Path = s3.getDir(prefix).build().toString();
+    String inputS3Path = s3.getOutputDir(prefix).build().toString();
     LOGGER.info("inputS3Path={}", inputS3Path);
 
     AvroInputFormat avroInputFormat =
@@ -184,7 +175,7 @@ public class FixSchemaJob extends BaseFlinkJob {
     Schema newSchema = getSchema(schema);
 
     AvroWriterFactory<GenericRecord> factory = createAvroWriterFactory(newSchema);
-    S3Path outputS3Path = s3.getDir(outputPrefix).build();
+    S3Path outputS3Path = s3.getOutputDir(outputPrefix).build();
     add(
         records.sinkTo(
             FileSink.forBulkFormat(

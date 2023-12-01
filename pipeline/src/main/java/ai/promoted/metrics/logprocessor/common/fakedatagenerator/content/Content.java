@@ -14,19 +14,20 @@ import java.util.Map;
  */
 @AutoValue
 public abstract class Content implements Serializable {
-  private static final long serialVersionUID = 1L;
-
   public static final String TYPE = "type";
-
-  public abstract String contentId();
-  /* Fields that are passed in on the Request. */
-  public abstract ImmutableMap<String, String> requestFields();
-  /* Fields that are passed in through DocumentDB. */
-  public abstract ImmutableMap<String, String> documentFields();
+  private static final long serialVersionUID = 1L;
 
   public static Builder builder() {
     return new AutoValue_Content.Builder();
   }
+
+  public abstract String contentId();
+
+  /* Fields that are passed in on the Request. */
+  public abstract ImmutableMap<String, String> requestFields();
+
+  /* Fields that are passed in through DocumentDB. */
+  public abstract ImmutableMap<String, String> documentFields();
 
   @AutoValue.Builder
   public abstract static class Builder {

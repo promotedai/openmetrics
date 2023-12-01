@@ -45,13 +45,13 @@ The steps are pretty complex.  Talk with Dan.  Make sure the MSK cluster has eno
 
 ### Setup terminal
 
-Run a container inside the EKS that has MSK access.  This example uses eee.
+Run a container inside the EKS that has MSK access.  This example uses TPT.
 
 1. Connect to AWS VPN.
 2. Setup your terminal to contact K8s.
 
 ```bash
-. ~/promotedai/infra-configs/scripts/metrics/eee/prod/source-env.sh 
+. ~/promotedai/infra-configs/scripts/metrics/tpt/prod/source-env.sh 
 ```
 
 3. Run a pod in the EKS cluster.  Make sure to use an image version that matches the MSK Kafka version.
@@ -106,7 +106,7 @@ ssl.key.password=password' > /tmp/client.properties
 You'll want to swap out the bootstrap server.
 
 ```bash
-kafka-topics.sh --list --bootstrap-server b-9.eeeprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:9094,b-1.eeeprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:9094,b-6.eeeprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:9094   --command-config /tmp/client.properties 
+kafka-topics.sh --list --bootstrap-server b-9.tptprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:9094,b-1.tptprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:9094,b-6.tptprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:9094   --command-config /tmp/client.properties 
 ```
 
 This should return something like 
@@ -115,7 +115,6 @@ This should return something like
 __amazon_msk_canary
 __consumer_offsets
 metrics.green.default.joined-event
-metrics.green.default.joined-user-event
 tracking.event.log-request
 ```
 
@@ -124,7 +123,7 @@ tracking.event.log-request
 1. Verify you can ese the current partitions using `describe`.
 
 ```bash
-kafka-topics.sh --describe --bootstrap-server b-9.eeeprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:9094,b-1.eeeprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:9094,b-6.eeeprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:9094   --command-config /tmp/client.properties --topic tracking.event.log-request
+kafka-topics.sh --describe --bootstrap-server b-9.tptprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:9094,b-1.tptprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:9094,b-6.tptprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:9094   --command-config /tmp/client.properties --topic tracking.event.log-request
 ```
 
 2. Generate a proposed reassignment. 
@@ -136,7 +135,7 @@ echo '{"topics": [{"topic": "tracking.event.log-request"}], "version": 1}' > /tm
 ```
 
 ```bash
-kafka-reassign-partitions.sh --zookeeper z-1.eeeprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:2181,z-2.eeeprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:2181,z-3.eeeprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:2181 --broker-list "1,2,3,4,5,6,7,8,9" --command-config /tmp/client.properties  --topics-to-move-json-file /tmp/topics.json --generate
+kafka-reassign-partitions.sh --zookeeper z-1.tptprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:2181,z-2.tptprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:2181,z-3.tptprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:2181 --broker-list "1,2,3,4,5,6,7,8,9" --command-config /tmp/client.properties  --topics-to-move-json-file /tmp/topics.json --generate
 ```
 
 This outputs...
@@ -158,6 +157,6 @@ echo '{"version":1,"partitions":[...' > /tmp/reassignment-file.json
 4. Run the reassignment command.  This will rebalance asynchronously.  It can take a hours to finish.
 
 ```bash
-kafka-reassign-partitions.sh --zookeeper z-1.eeeprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:2181,z-2.eeeprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:2181,z-3.eeeprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:2181 --command-config /tmp/client.properties  --reassignment-json-file /tmp/reassignment-file.json --execute
+kafka-reassign-partitions.sh --zookeeper z-1.tptprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:2181,z-2.tptprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:2181,z-3.tptprodmetrics.wm1fi5.c23.kafka.us-east-1.amazonaws.com:2181 --command-config /tmp/client.properties  --reassignment-json-file /tmp/reassignment-file.json --execute
 ```
 

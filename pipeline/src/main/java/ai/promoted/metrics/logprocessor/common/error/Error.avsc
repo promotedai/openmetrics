@@ -3,14 +3,14 @@
     "type": "enum",
     "name": "RecordType",
     "namespace": "ai.promoted.metrics.common",
-    "symbols": ["USER", "VIEW", "DELIVERY_LOG", "REQUEST", "REQUEST_INSERTION", "EXECUTION_INSERTION", "RESPONSE_INSERTION", "IMPRESSION", "ACTION"]
+    "symbols": ["COHORT_MEMBERSHIP", "VIEW", "DELIVERY_LOG", "REQUEST", "REQUEST_INSERTION", "EXECUTION_INSERTION", "RESPONSE_INSERTION", "IMPRESSION", "ACTION", "DIAGNOSTICS"]
   },
 
   {
     "type": "enum",
     "name": "Field",
     "namespace": "ai.promoted.metrics.common",
-    "symbols": ["MULTIPLE","PLATFORM_ID","LOG_USER_ID", "USER_ID", "SESSION_ID", "VIEW_ID", "REQUEST_ID", "INSERTION_ID", "CONTENT_ID", "IMPRESSION_ID", "ACTION_ID", "CART_CONTENT_QUANTITY", "CART_CONTENT_ID"]
+    "symbols": ["MULTIPLE", "PLATFORM_ID", "ANON_USER_ID", "LOG_USER_ID", "USER_ID", "SESSION_ID", "VIEW_ID", "REQUEST_ID", "INSERTION_ID", "INSERTION_CONTENT_ID", "IMPRESSION_ID", "ACTION_ID", "CART_CONTENT_QUANTITY", "CART_CONTENT_ID"]
   },
 
   {
@@ -24,7 +24,7 @@
         "default": 0
       },
       {
-        "name": "logUserId",
+        "name": "anonUserId",
         "type": "string",
         "default": ""
       },
@@ -87,6 +87,11 @@
         "name": "logTimestamp",
         "type": "long",
         "default": 0
+      },
+      {
+        "name": "processingTimestamp",
+        "type": "long",
+        "default": 0
       }
     ]
   },
@@ -110,7 +115,12 @@
         "default": 0
       },
       {
-        "name": "logUserId",
+        "name": "anonUserId",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "cohortMembershipId",
         "type": "string",
         "default": ""
       },
@@ -213,7 +223,7 @@
         "default": 0
       },
       {
-        "name": "logTimestamp",
+        "name": "eventApiTimestamp",
         "type": "long",
         "default": 0
       },

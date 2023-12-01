@@ -6,8 +6,14 @@ java_library(
     visibility = ["//pipeline/src/main/java/ai/promoted/metrics/logprocessor:java_and_test"],
     deps = [
         "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/constant",
-        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/util",
         "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/counter",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/queryablestate",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/error",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/error:avro",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions/base",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/model:avro",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/util",
+        "@com_github_promotedai_schema_internal_git//proto/queryablestate:flink_queryable_state_java_proto",
         "@com_github_promotedai_schema_internal_git//proto/common:common_java_proto",
         "@com_github_promotedai_schema_internal_git//proto/delivery:delivery_java_proto",
         "@com_github_promotedai_schema_internal_git//proto/event:event_java_proto",
@@ -24,8 +30,7 @@ java_library(
         "@maven_neverlink//:org_apache_flink_flink_statebackend_rocksdb",
         # Manually replace the frocksdbjni version to support mac m1 chip https://github.com/apache/flink/pull/21747
         "@maven_neverlink//:com_ververica_frocksdbjni_6_20_3_ververica_2_0",
-        "@maven//:org_apache_logging_log4j_log4j_api",
-        "@maven//:org_apache_logging_log4j_log4j_core",
+        "@maven_neverlink//:org_apache_logging_log4j_log4j_api",
         "@maven//:org_apache_avro_avro",
     ],
 )

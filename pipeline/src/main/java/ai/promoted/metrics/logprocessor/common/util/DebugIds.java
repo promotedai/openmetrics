@@ -9,10 +9,20 @@ import ai.promoted.proto.event.Action;
 import ai.promoted.proto.event.CombinedDeliveryLog;
 import ai.promoted.proto.event.FlatResponseInsertion;
 import ai.promoted.proto.event.Impression;
-import ai.promoted.proto.event.JoinedEvent;
 import ai.promoted.proto.event.JoinedIdentifiers;
+import ai.promoted.proto.event.JoinedImpression;
+import ai.promoted.proto.event.TinyAction;
+import ai.promoted.proto.event.TinyActionPath;
+import ai.promoted.proto.event.TinyAttributedAction;
+import ai.promoted.proto.event.TinyCommonInfo;
 import ai.promoted.proto.event.TinyDeliveryLog;
-import ai.promoted.proto.event.TinyEvent;
+import ai.promoted.proto.event.TinyImpression;
+import ai.promoted.proto.event.TinyInsertion;
+import ai.promoted.proto.event.TinyInsertionCore;
+import ai.promoted.proto.event.TinyJoinedImpression;
+import ai.promoted.proto.event.TinyTouchpoint;
+import ai.promoted.proto.event.UnnestedTinyAction;
+import ai.promoted.proto.event.UnnestedTinyJoinedImpression;
 import ai.promoted.proto.event.User;
 import ai.promoted.proto.event.View;
 import com.google.auto.value.AutoValue;
@@ -33,9 +43,9 @@ public abstract class DebugIds implements Serializable {
   // fields. Used to track down missing flattened events.
   abstract Set<String> userIds();
 
-  // Set of logUserIds substrings to log more flatten event debug logs. Acts as an OR with other
+  // Set of anonUserIds substrings to log more flatten event debug logs. Acts as an OR with other
   // debug fields. Used to track down missing flattened events.
-  abstract Set<String> logUserIds();
+  abstract Set<String> anonUserIds();
 
   // Set of sessionIds substrings to log more flatten event debug logs. Acts as an OR with other
   // debug fields. Used to track down missing flattened events.
@@ -44,10 +54,6 @@ public abstract class DebugIds implements Serializable {
   // Set of viewIds substrings to log more flatten event debug logs. Acts as an OR with other debug
   // fields. Used to track down missing flattened events.
   abstract Set<String> viewIds();
-
-  // Set of autoViewIds substrings to log more flatten event debug logs. Acts as an OR with other
-  // debug fields. Used to track down missing flattened events.
-  abstract Set<String> autoViewIds();
 
   // Set of requestIds substrings to log more flatten event debug logs. Acts as an OR with other
   // debug fields. Used to track down missing flattened events.
@@ -68,10 +74,9 @@ public abstract class DebugIds implements Serializable {
   public static Builder builder() {
     return new AutoValue_DebugIds.Builder()
         .setUserIds(ImmutableSet.of())
-        .setLogUserIds(ImmutableSet.of())
+        .setAnonUserIds(ImmutableSet.of())
         .setSessionIds(ImmutableSet.of())
         .setViewIds(ImmutableSet.of())
-        .setAutoViewIds(ImmutableSet.of())
         .setRequestIds(ImmutableSet.of())
         .setInsertionIds(ImmutableSet.of())
         .setImpressionIds(ImmutableSet.of())
@@ -87,13 +92,11 @@ public abstract class DebugIds implements Serializable {
   public abstract static class Builder {
     public abstract Builder setUserIds(Set<String> userIds);
 
-    public abstract Builder setLogUserIds(Set<String> logUserIds);
+    public abstract Builder setAnonUserIds(Set<String> anonUserIds);
 
     public abstract Builder setSessionIds(Set<String> sessionIds);
 
     public abstract Builder setViewIds(Set<String> viewIds);
-
-    public abstract Builder setAutoViewIds(Set<String> autoViewIds);
 
     public abstract Builder setRequestIds(Set<String> requestIds);
 
@@ -105,7 +108,7 @@ public abstract class DebugIds implements Serializable {
 
     abstract Set<String> userIds();
 
-    abstract Set<String> logUserIds();
+    abstract Set<String> anonUserIds();
 
     abstract Set<String> sessionIds();
 
@@ -125,10 +128,9 @@ public abstract class DebugIds implements Serializable {
   @Memoized
   public boolean hasAnyIds() {
     return !userIds().isEmpty()
-        || !logUserIds().isEmpty()
+        || !anonUserIds().isEmpty()
         || !sessionIds().isEmpty()
         || !viewIds().isEmpty()
-        || !autoViewIds().isEmpty()
         || !requestIds().isEmpty()
         || !insertionIds().isEmpty()
         || !impressionIds().isEmpty()
@@ -157,42 +159,60 @@ public abstract class DebugIds implements Serializable {
     return matches(actionIds(), actionId);
   }
 
-  public boolean matches(JoinedEvent joinedEvent) {
+  public boolean matches(TinyTouchpoint event) {
     if (!hasAnyIds()) {
       return false;
     }
-    JoinedIdentifiers ids = joinedEvent.getIds();
-    return matches(userIds(), ids.getUserId())
-        || matches(logUserIds(), ids.getLogUserId())
-        || matches(sessionIds(), ids.getSessionId())
-        || matches(viewIds(), ids.getViewId())
-        || matches(autoViewIds(), ids.getAutoViewId())
-        || matches(requestIds(), ids.getRequestId())
-        || matches(insertionIds(), ids.getInsertionId())
-        || matches(impressionIds(), ids.getImpressionId())
-        // ActionId is not on JoinedEvent so we need to check the message.
-        || matches(actionIds(), joinedEvent.getAction().getActionId());
+    return matches(event.getJoinedImpression());
   }
 
-  public boolean matches(TinyEvent joinedEvent) {
+  public boolean matches(TinyAttributedAction action) {
     if (!hasAnyIds()) {
       return false;
     }
-    return matches(logUserIds(), joinedEvent.getLogUserId())
-        // TODO - decide if we'll add sessionId.
-        || matches(viewIds(), joinedEvent.getViewId())
-        || matches(autoViewIds(), joinedEvent.getAutoViewId())
-        || matches(requestIds(), joinedEvent.getRequestId())
-        || matches(insertionIds(), joinedEvent.getInsertionId())
-        || matches(impressionIds(), joinedEvent.getImpressionId())
-        || matches(actionIds(), joinedEvent.getActionId());
+    return matches(action.getAction()) || matches(action.getTouchpoint());
+  }
+
+  public boolean matches(TinyJoinedImpression joinedImpression) {
+    if (!hasAnyIds()) {
+      return false;
+    }
+    return matches(joinedImpression.getInsertion()) || matches(joinedImpression.getImpression());
+  }
+
+  public boolean matches(UnnestedTinyJoinedImpression unnested) {
+    if (!hasAnyIds()) {
+      return false;
+    }
+    return matches(unnested.getJoinedImpression());
+  }
+
+  public boolean matches(JoinedImpression impression) {
+    if (!hasAnyIds()) {
+      return false;
+    }
+    JoinedIdentifiers ids = impression.getIds();
+    return matches(userIds(), ids.getUserId())
+        || matches(anonUserIds(), ids.getAnonUserId())
+        || matches(sessionIds(), ids.getSessionId())
+        || matches(viewIds(), ids.getViewId())
+        || matches(requestIds(), ids.getRequestId())
+        || matches(insertionIds(), ids.getInsertionId())
+        || matches(impressionIds(), ids.getImpressionId());
+  }
+
+  public boolean matches(TinyCommonInfo common) {
+    if (!hasAnyIds()) {
+      return false;
+    }
+    return matches(anonUserIds(), common.getAnonUserId());
   }
 
   public boolean matches(TinyDeliveryLog deliveryLog) {
     if (!hasAnyIds()) {
       return false;
     }
-    return matches(logUserIds(), deliveryLog.getLogUserId())
+    return matches(deliveryLog.getCommon())
         // TODO - decide if we'll add sessionId.
         || matches(viewIds(), deliveryLog.getViewId())
         // TODO - decide if we want autoViewId.
@@ -200,8 +220,59 @@ public abstract class DebugIds implements Serializable {
         || deliveryLog.getResponseInsertionList().stream().anyMatch(this::matches);
   }
 
-  private boolean matches(TinyDeliveryLog.TinyInsertion insertion) {
+  private boolean matches(TinyInsertionCore insertion) {
+    if (!hasAnyIds()) {
+      return false;
+    }
     return matches(insertionIds(), insertion.getInsertionId());
+  }
+
+  public boolean matches(TinyInsertion insertion) {
+    if (!hasAnyIds()) {
+      return false;
+    }
+    return matches(insertion.getCommon())
+        || matches(viewIds(), insertion.getViewId())
+        || matches(requestIds(), insertion.getRequestId())
+        || matches(insertion.getCore());
+  }
+
+  public boolean matches(TinyImpression impression) {
+    if (!hasAnyIds()) {
+      return false;
+    }
+    return matches(impression.getCommon())
+        || matches(viewIds(), impression.getViewId())
+        || matches(requestIds(), impression.getRequestId())
+        || matches(insertionIds(), impression.getInsertionId())
+        || matches(impressionIds(), impression.getImpressionId());
+  }
+
+  public boolean matches(TinyAction action) {
+    if (!hasAnyIds()) {
+      return false;
+    }
+    return matches(action.getCommon())
+        || matches(viewIds(), action.getViewId())
+        || matches(requestIds(), action.getRequestId())
+        || matches(insertionIds(), action.getInsertionId())
+        || matches(impressionIds(), action.getImpressionId())
+        || matches(actionIds(), action.getActionId());
+  }
+
+  public boolean matches(UnnestedTinyAction unnested) {
+    if (!hasAnyIds()) {
+      return false;
+    }
+    return matches(unnested.getAction());
+  }
+
+  public boolean matches(TinyActionPath actionPath) {
+    if (!hasAnyIds()) {
+      return false;
+    }
+    return matches(actionPath.getAction())
+        || actionPath.getTouchpointsList().stream().anyMatch(this::matches);
   }
 
   private boolean matches(Set<String> idSubstrings, String id) {
@@ -215,10 +286,9 @@ public abstract class DebugIds implements Serializable {
     }
     JoinedIdentifiers ids = flatInsertion.getIds();
     return matches(userIds(), ids.getUserId())
-        || matches(logUserIds(), ids.getLogUserId())
+        || matches(anonUserIds(), ids.getAnonUserId())
         || matches(sessionIds(), ids.getSessionId())
         || matches(viewIds(), ids.getViewId())
-        || matches(autoViewIds(), ids.getAutoViewId())
         || matches(requestIds(), ids.getRequestId())
         || matches(insertionIds(), ids.getInsertionId());
   }
@@ -228,10 +298,9 @@ public abstract class DebugIds implements Serializable {
       return false;
     }
     return matches(userIds(), id)
-        || matches(logUserIds(), id)
+        || matches(anonUserIds(), id)
         || matches(sessionIds(), id)
         || matches(viewIds(), id)
-        || matches(autoViewIds(), id)
         || matches(requestIds(), id)
         || matches(insertionIds(), id)
         || matches(impressionIds(), id)
@@ -261,7 +330,7 @@ public abstract class DebugIds implements Serializable {
       return false;
     }
     return matches(userIds(), user.getUserInfo().getUserId())
-        || matches(logUserIds(), user.getUserInfo().getLogUserId());
+        || matches(anonUserIds(), user.getUserInfo().getAnonUserId());
   }
 
   public boolean matches(View view) {
@@ -269,7 +338,7 @@ public abstract class DebugIds implements Serializable {
       return false;
     }
     return matches(userIds(), view.getUserInfo().getUserId())
-        || matches(logUserIds(), view.getUserInfo().getLogUserId())
+        || matches(anonUserIds(), view.getUserInfo().getAnonUserId())
         || matches(sessionIds(), view.getSessionId())
         || matches(viewIds(), view.getViewId());
   }
@@ -279,10 +348,9 @@ public abstract class DebugIds implements Serializable {
       return false;
     }
     return matches(userIds(), request.getUserInfo().getUserId())
-        || matches(logUserIds(), request.getUserInfo().getLogUserId())
+        || matches(anonUserIds(), request.getUserInfo().getAnonUserId())
         || matches(sessionIds(), request.getSessionId())
         || matches(viewIds(), request.getViewId())
-        || matches(autoViewIds(), request.getAutoViewId())
         || matches(requestIds(), request.getRequestId())
         || matches(request.getInsertionList());
   }
@@ -304,10 +372,9 @@ public abstract class DebugIds implements Serializable {
 
   private boolean matches(Insertion insertion) {
     return matches(userIds(), insertion.getUserInfo().getUserId())
-        || matches(logUserIds(), insertion.getUserInfo().getLogUserId())
+        || matches(anonUserIds(), insertion.getUserInfo().getAnonUserId())
         || matches(sessionIds(), insertion.getSessionId())
         || matches(viewIds(), insertion.getViewId())
-        || matches(autoViewIds(), insertion.getAutoViewId())
         || matches(requestIds(), insertion.getRequestId())
         || matches(insertionIds(), insertion.getInsertionId());
   }
@@ -317,10 +384,9 @@ public abstract class DebugIds implements Serializable {
       return false;
     }
     return matches(userIds(), impression.getUserInfo().getUserId())
-        || matches(logUserIds(), impression.getUserInfo().getLogUserId())
+        || matches(anonUserIds(), impression.getUserInfo().getAnonUserId())
         || matches(sessionIds(), impression.getSessionId())
         || matches(viewIds(), impression.getViewId())
-        || matches(autoViewIds(), impression.getAutoViewId())
         || matches(requestIds(), impression.getRequestId())
         || matches(insertionIds(), impression.getInsertionId())
         || matches(impressionIds(), impression.getImpressionId());
@@ -331,10 +397,9 @@ public abstract class DebugIds implements Serializable {
       return false;
     }
     return matches(userIds(), action.getUserInfo().getUserId())
-        || matches(logUserIds(), action.getUserInfo().getLogUserId())
+        || matches(anonUserIds(), action.getUserInfo().getAnonUserId())
         || matches(sessionIds(), action.getSessionId())
         || matches(viewIds(), action.getViewId())
-        || matches(autoViewIds(), action.getAutoViewId())
         || matches(requestIds(), action.getRequestId())
         || matches(insertionIds(), action.getInsertionId())
         || matches(impressionIds(), action.getImpressionId())

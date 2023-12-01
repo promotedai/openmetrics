@@ -1,11 +1,13 @@
 import boto3
-from common.table import PromptArgs, Table, get_tables, table_exists
+from common.table import PromptArgs, Table, get_tables
 from pyathena import connect
 from pyathena.connection import Connection
 from .util import expect_empty_result
 
 
 class UpdateViewArgs(PromptArgs):
+    s3_staging_bucket: str = ""  # The s3 staging bucket for Athena
+    input_table_prefix: str = ""  # An optional prefix for the input table to remove.  E.g. Allows us to drop "green_".
     output_view_prefix: str = ""  # An optional prefix for the output view.  Used for manual testing.
 
 
@@ -19,8 +21,8 @@ def upsert_views(args: UpdateViewArgs):
 
     print(f"Views to upsert ({len(tables)}):")
     for table in tables:
-        output_view_name = get_output_view_name(table.name, args.table_prefix, args.output_view_prefix)
-        print(f"- {table.region}.{table.db}.{output_view_name} -> {table.name}")
+        output_view_name = get_output_view_name(table.name, args.input_table_prefix, args.output_view_prefix)
+        print(f"- {table.region}.{table.db}.{output_view_name} will `select * from` {table.name}")
 
     if args.dryrun:
         print("\nNot upserting because `--dryrun` as specified")
@@ -32,20 +34,16 @@ def upsert_views(args: UpdateViewArgs):
             print("Not upserting.")
             return
 
-    athena_conns = AthenaConnections()
+    athena_conns = AthenaConnections(args.s3_staging_bucket)
     for table in tables:
-        if not table_exists(table):
-            # TODO - delete view if the table is not found.
-            print(f"could not find {table.region}.{table.db}.{table.name}")
-            continue
-
-        output_view_name = get_output_view_name(table.name, args.table_prefix, args.output_view_prefix)
+        output_view_name = get_output_view_name(table.name, args.input_table_prefix, args.output_view_prefix)
         athena_conn = athena_conns.get_conn(table.region, table.db)
         upsert_view(athena_conn, table, output_view_name)
 
 
 class AthenaConnections:
-    def __init__(self):
+    def __init__(self, s3_staging_bucket):
+        self.s3_staging_bucket = s3_staging_bucket
         self.dbregion_to_athena_conn: map[tuple[str, str], Connection] = {}
 
     def get_conn(self, region: str, db: str) -> Connection:
@@ -53,7 +51,7 @@ class AthenaConnections:
         athena_conn = self.dbregion_to_athena_conn.get(region_and_db, None)
         if not athena_conn:
             athena_conn = connect(
-                s3_staging_dir=f"s3://aws-athena-query-results-{region}-055315558257/update-athena/{db}/",
+                s3_staging_dir=f"s3://{self.s3_staging_bucket}/update-athena/{db}/",
                 region_name=region)
             self.dbregion_to_athena_conn[region_and_db] = athena_conn
         return athena_conn

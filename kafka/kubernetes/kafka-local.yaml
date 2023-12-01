@@ -1,54 +1,59 @@
 ## This is the local values.
 ## The top part is very important.  It specifies the internal and external listeners.
-
-replicaCount: 1
-
-config: |-
-  confluent.support.metrics.enable=false  # Disables confluent metric submission
-  # auto.leader.rebalance.enable=true
-  # controlled.shutdown.enable=true
-  # controlled.shutdown.max.retries=100
-  zookeeper.connect=zookeeper
-
-# Keep autoCreateTopicsEnable off so we can verify we have the correct topics in production.
-autoCreateTopicsEnable: false
+#image:
+#  digest: sha256:6c8f9da0ae9f1c3413420225719745f622e6a16e22abe7d371f15379370cc839
+controller:
+  replicaCount: 1
+listeners:
+  client:
+    protocol: PLAINTEXT
+  controller:
+    protocol: PLAINTEXT
+#  - PLAINTEXT://kafka:9092,CONTROLLER://kafka:9093
+#advertisedListeners:
+#  - PLAINTEXT://:9092
+#listeners:
+#  - PLAINTEXT://:9092
+#  - CONTROLLER://:9093
+#listenerSecurityProtocolMap: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT"
+#interBrokerListenerName: PLAINTEXT
 
 ## Options required for external access via NodePort
 ## ref:
 ## - http://kafka.apache.org/documentation/#security_configbroker
 ## - https://cwiki.apache.org/confluence/display/KAFKA/KIP-103%3A+Separation+of+Internal+and+External+traffic
-advertisedListeners:
-  - EXTERNAL://$((3190 + ${KAFKA_BROKER_ID}))
-## Setting "advertised.listeners" here appends to "PLAINTEXT://${POD_IP}:9092,", ensure you update the domain
-## If external service type is Nodeport:
-# advertisedListeners:
-#   - EXTERNAL://:$((31090 + ${KAFKA_BROKER_ID}))
-# advertisedListeners:
-#   - EXTERNAL://kafka.cluster2.local:$((31090 + ${KAFKA_BROKER_ID}))
-## If external service type is LoadBalancer and distinct is true:
-# advertisedListeners:
-#   - EXTERNAL://kafka-$((${KAFKA_BROKER_ID})).cluster.local:19092
-## If external service type is LoadBalancer and distinct is false:
-# advertisedListeners:
-#   - EXTERNAL://${LOAD_BALANCER_IP}:31090
-## Uncomment to define the EXTERNAL Listener protocol
-listenerSecurityProtocolMap: PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
-
 externalAccess:
-  service:
-    type: NodePort
-
+  enabled: true
+  controller:
+    service:
+      type: NodePort
+  broker:
+    service:
+      type: NodePort
+  autoDiscovery:
+    enabled: true
+serviceAccount:
+  create: true
+rbac:
+  create: true
 ## I tried Xmx128m but it kept hitting Java heap space issues.
 heapOpts: "-Xmx256m"
 
-
-## Persistence configuration. Specify if and how to persist data to a persistent volume.
-##
+# Persistence configuration. Specify if and how to persist data to a persistent volume.
 persistence:
-  ## The size of the PersistentVolume to allocate to each Kafka Pod in the StatefulSet.
-  ##
+  # The size of the PersistentVolume to allocate to each Kafka Pod in the StatefulSet.
   size: "128Mi"
+kraft:
+  enabled: true
+zookeeper:
+  enabled: false
 
+# Keep autoCreateTopicsEnable off so we can verify we have the correct topics in production.
+extraConfig: |
+  auto.create.topics.enable: false
+  transaction.max.timeout.ms: 3600000
+  transaction.state.log.replication.factor: 1
+  transaction.state.log.min.isr: 1
 ## Topic creation and configuration.
 ## The job will be run on a deployment only when the config has been changed.
 ## - If 'partitions' and 'replicationFactor' are specified we create the topic (with --if-not-exists.)
@@ -66,46 +71,122 @@ persistence:
 provisioning:
   enabled: true
   numPartitions: 1
-  partitions: 1
   topics:
     - name: tracking.event.log-request
-      # TODO - It looks like something is broken with the however partitions work.  This is worrisome.
-      # partitions: 6
+      partitions: 3
       # TODO - increase the max record size.
       config:
         # retention = 90 days.
         retention.ms: "7776000000"
         message.timestamp.type: LogAppendTime
-    - name: metrics.blue.default.joined-event
+    - name: metrics.blue.default.validation-error
+      partitions: 3
       config:
         # retention = 90 days.
         retention.ms: "7776000000"
-        message.timestamp.type: LogAppendTime
-    - name: metrics.blue.default.joined-user-event
+    - name: metrics.blue.default.anon-user-log-user-event
+      partitions: 3
       config:
         # retention = 90 days.
         retention.ms: "7776000000"
-        message.timestamp.type: LogAppendTime
+    - name: metrics.blue.default.anon-user-retained-user-event
+      partitions: 3
+      config:
+        # retention = 90 days.
+        retention.ms: "7776000000"
+    - name: metrics.blue.default.log-user-user-event
+      partitions: 3
+      config:
+        # retention = 90 days.
+        retention.ms: "7776000000"
+    - name: metrics.blue.default.retained-user
+      partitions: 3
+      config:
+        # retention = 90 days.
+        retention.ms: "7776000000"
+    - name: metrics.blue.default.cohort-membership
+      partitions: 3
+      config:
+        # retention = 90 days.
+        retention.ms: "7776000000"
+    - name: metrics.blue.default.invalid-cohort-membership
+      partitions: 3
+      config:
+        # retention = 90 days.
+        retention.ms: "7776000000"
+    - name: metrics.blue.default.view
+      partitions: 3
+      config:
+        # retention = 90 days.
+        retention.ms: "7776000000"
+    - name: metrics.blue.default.invalid-view
+      partitions: 3
+      config:
+        # retention = 90 days.
+        retention.ms: "7776000000"
+    - name: metrics.blue.default.delivery-log
+      partitions: 3
+      config:
+        # retention = 90 days.
+        retention.ms: "7776000000"
+    - name: metrics.blue.default.invalid-delivery-log
+      partitions: 3
+      config:
+        # retention = 90 days.
+        retention.ms: "7776000000"
+    - name: metrics.blue.default.impression
+      partitions: 3
+      config:
+        # retention = 90 days.
+        retention.ms: "7776000000"
+    - name: metrics.blue.default.invalid-impression
+      partitions: 3
+      config:
+        # retention = 90 days.
+        retention.ms: "7776000000"
+    - name: metrics.blue.default.action
+      partitions: 3
+      config:
+        # retention = 90 days.
+        retention.ms: "7776000000"
+    - name: metrics.blue.default.action-paimon
+      partitions: 3
+      config:
+        # retention = 90 days.
+        retention.ms: "7776000000"
+    - name: metrics.blue.default.invalid-action
+      partitions: 3
+      config:
+        # retention = 90 days.
+        retention.ms: "7776000000"
+    - name: metrics.blue.default.diagnostics
+      partitions: 3
+      config:
+        # retention = 90 days.
+        retention.ms: "7776000000"
+    - name: metrics.blue.default.invalid-diagnostics
+      partitions: 3
+      config:
+        # retention = 90 days.
+        retention.ms: "7776000000"
+    - name: metrics.blue.default.joined-impression
+      partitions: 3
+      config:
+        # retention = 90 days.
+        retention.ms: "7776000000"
+    - name: metrics.blue.default.attributed-action
+      partitions: 3
+      config:
+        # retention = 90 days.
+        retention.ms: "7776000000"
     - name: metrics.blue.default.flat-response-insertion
+      partitions: 3
       config:
         # retention = 90 days.
         retention.ms: "7776000000"
-        message.timestamp.type: LogAppendTime
-    - name: metrics.blue.default.flat-user-response-insertion
-      config:
-        # retention = 90 days.
-        retention.ms: "7776000000"
-        message.timestamp.type: LogAppendTime
     - name: metrics.blue.default.cumulated-content-metrics
+      partitions: 3
       # This is only for local development.
       config:
         # retention = 90 days.
         retention.ms: "7776000000"
-        message.timestamp.type: LogAppendTime
-
-# ------------------------------------------------------------------------------
-# Zookeeper:
-# ------------------------------------------------------------------------------
-
-zookeeper:
-  enabled: false

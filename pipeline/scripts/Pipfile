@@ -11,6 +11,7 @@ typed-argument-parser = "8967a512f325515d043a99832b777ff6ee8dcb1c"
 python-snappy = "*"
 fastavro = "*"
 retrying = "*"
+pyyaml = "*"
 
 [dev-packages]
 flake8 = "*"

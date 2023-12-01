@@ -2,6 +2,7 @@ package_group(
     name = "java_and_test",
     packages = [
         "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/...",
+        "//pipeline/src/main/java/org/apache/flink/...",
         "//pipeline/src/test/java/ai/promoted/metrics/logprocessor/...",
     ],
 )

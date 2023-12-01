@@ -2,15 +2,15 @@
 
 This script updates all of the Athena Views.  This is used to create a common View for a labeled output (like `blue_` or `green_`).
 
-Example: This script creates a `ccc_prod_metrics.action` view that queries `ccc_prod_metrics.blue_action`.  When we want to switch to `green_action`, the script can update the view.
+Example: This script creates a `mymarket_prod_metrics.action` view that queries `mymarket_prod_metrics.blue_action`.  When we want to switch to `green_action`, the script can update the view.
 
 ## Updating Athena Views
 
 Supports [../glue/README](../glue/README) list flags.
 
-```
+```bash
 aws-vault exec promotedai -d 12h 
-pipenv run python -m athena.update_views --region us-east-1 --db ccc_dev_metrics --table_prefix blue_
+pipenv run python -m athena.update_views --s3_staging_bucket "aws-athena-query-results-us-east-1-${AWS_ACCOUNT_ID}" --region us-east-1 --db mymarket_dev_metrics --table_expression "^blue_.*" --input_table_prefix blue_
 ```
 
 ## Output execution details for recent Athena queries
@@ -23,20 +23,20 @@ pipenv run python -m athena.get_query_execution_details --region us-east-1 --wor
 
 ## Tests
 
-No automated tests.
+There are some utility function unit tests.  No automated integration tests.
 
 1. Run the script with `--dry-run`.
 2. Run the script manually and verify it succeeds with a different `--output-prefix`.  This creates a different view that shouldn't be used.
 
-```
+```bash
 aws-vault exec promotedai -d 12h 
-pipenv run python -m athena.update_views --region us-east-1 --db ccc_dev_metrics --table_prefix blue_ --output_view_prefix test20200101_
+pipenv run python -m athena.update_views --s3_staging_bucket "aws-athena-query-results-us-east-1-${AWS_ACCOUNT_ID}" --region us-east-1 --db mymarket_dev_metrics --table_expression "^blue_.*" --input_table_prefix blue_ --output_view_prefix test20200101_
 ```
 
 If the script succeeds, you can drop the tables.
 
-```
-pipenv run python -m athena.drop_views --region us-east-1 --db ccc_dev_metrics --view_prefix test20200101_
+```bash
+pipenv run python -m athena.drop_views --s3_staging_bucket "aws-athena-query-results-us-east-1-${AWS_ACCOUNT_ID}" --region us-east-1 --db mymarket_dev_metrics --view_prefix test20200101_
 ```
 
 ## Future plans

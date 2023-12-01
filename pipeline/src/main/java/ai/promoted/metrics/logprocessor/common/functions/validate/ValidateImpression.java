@@ -11,6 +11,9 @@ import org.apache.flink.util.Collector;
 
 /** Filter Impression records to valid ones. */
 public class ValidateImpression extends BaseValidate<Impression> {
+  public ValidateImpression(boolean requireAnonUserId) {
+    super(Impression.class, requireAnonUserId);
+  }
 
   public void processElement(
       Impression impression,
@@ -18,9 +21,7 @@ public class ValidateImpression extends BaseValidate<Impression> {
       Collector<Impression> out)
       throws Exception {
     ImmutableList.Builder<ValidationError> errors = ImmutableList.builder();
-    if (impression.getUserInfo().getLogUserId().isEmpty()) {
-      errors.add(createError(impression, ErrorType.MISSING_FIELD, Field.LOG_USER_ID));
-    }
+    validateAnonUserId(impression, impression.getUserInfo(), errors);
     if (impression.getInsertionId().isEmpty() && impression.getContentId().isEmpty()) {
       errors.add(createError(impression, ErrorType.MISSING_JOINABLE_ID, Field.MULTIPLE));
     }
@@ -32,7 +33,7 @@ public class ValidateImpression extends BaseValidate<Impression> {
     return ValidationError.newBuilder()
         .setRecordType(RecordType.IMPRESSION)
         .setPlatformId(impression.getPlatformId())
-        .setLogUserId(impression.getUserInfo().getLogUserId())
+        .setAnonUserId(impression.getUserInfo().getAnonUserId())
         .setViewId(impression.getViewId())
         .setRequestId(impression.getRequestId())
         .setResponseInsertionId(impression.getInsertionId())

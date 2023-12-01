@@ -1,0 +1,34 @@
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: flink-job
+spec:
+  job:
+    args: [
+      "--jobLabel=blue",
+      "--s3Bucket=promoted-event-logs",
+      "--sideOutputDebugLogging",
+
+      "--wipe",  ### IMPORTANT: uncomment when backfilling!
+      # Non-cluster mode.
+      "--counterService=redis://redis-master:6379/0",
+      # Cluster mode.
+      # "--shardedEndpoints=redis://redis-cluster:6379",
+      # for local runs, we always want to see output.
+      "--counterOutputStartTimestamp=1",
+      "--startFromEarliest",
+
+      "--parallelism=1",
+      "--maxParallelism=1",
+
+      # Periodically update the watermark locally.
+      # Needs a longer delay for slow job startup.
+      "--watermarkIdleness=PT5M",
+      # Align the watermark since we have different input sources.
+      "--watermarkAlignment",
+      "--checkpointInterval=PT1M",
+    ]
+  flinkConfiguration:
+    state.savepoints.dir: s3a://promoted-event-logs/counter-flink-job-blue/savepoints
+    state.checkpoints.dir: s3a://promoted-event-logs/counter-flink-job-blue/checkpoints
+    high-availability.storageDir: s3a://promoted-event-logs/counter-flink-job-blue/ha

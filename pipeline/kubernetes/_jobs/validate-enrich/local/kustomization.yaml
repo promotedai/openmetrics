@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../_base
+patches:
+  - patch: |-
+      - op: replace
+        path: /spec/image
+        value: bazel/pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/validateenrich:ValidateEnrichJob_image
+    target:
+      kind: FlinkDeployment
+      name: flink-job

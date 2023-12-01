@@ -10,9 +10,9 @@ This directory contains scripts to:
 If you want to investigate the text logs, start by looking at the CloudWatch Flink logs.  Flink TM and JM text logs get saved to CloudWatch.  We might miss some final log messages if the jobs/pods die in an abrupt way. 
 
 Steps:
-1. Go to CloudWatch and search for the EKS cluster.  E.g. `eee-core`.
+1. Go to CloudWatch and search for the EKS cluster.  E.g. `tpt-core`.
 
-https://us-east-1.console.aws.amazon.com/cloudwatch/home?region=us-east-1#logsV2:log-groups/log-group/$252Faws$252Feks$252Feee-core
+https://us-east-1.console.aws.amazon.com/cloudwatch/home?region=us-east-1#logsV2:log-groups/log-group/$252Faws$252Feks$252Ftpt-core
 
 2. Click on `Search all log streams`.
 

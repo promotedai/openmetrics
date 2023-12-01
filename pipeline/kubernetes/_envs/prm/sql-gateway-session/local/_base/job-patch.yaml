@@ -1,0 +1,18 @@
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: flink-job
+spec:
+  jobManager:
+    resource:
+      cpu: 0.5
+  taskManager:
+    resource:
+      cpu: 0.5
+  flinkConfiguration:
+    state.savepoints.dir: s3a://promoted-event-logs/sql-gateway-session/savepoints
+    state.checkpoints.dir: s3a://promoted-event-logs/sql-gateway-session/checkpoints
+    high-availability.storageDir: s3a://promoted-event-logs/sql-gateway-session/ha
+#    state.savepoints.dir: file:///opt/flink/savepoints
+#    state.checkpoints.dir: file:///opt/flink/checkpoints
+#    high-availability.storageDir: /opt/flink/ha

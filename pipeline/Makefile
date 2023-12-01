@@ -19,11 +19,17 @@ local-minio-setup:
 local-minio-clean:
 	bash scripts/local/minio-clean.sh
 
-local-flink-setup:
-	bash scripts/local/flink-setup.sh
+local-flink-operator-setup:
+	bash scripts/local/flink-operator-setup.sh
 
-local-flink-clean:
-	bash scripts/local/flink-clean.sh
+local-flink-operator-clean:
+	bash scripts/local/flink-operator-clean.sh
+
+local-validate-enrich-job-setup:
+	bash scripts/local/validate-enrich-job-setup.sh
+
+local-validate-enrich-job-clean:
+	bash scripts/local/validate-enrich-job-clean.sh
 
 local-raw-output-job-setup:
 	bash scripts/local/raw-output-job-setup.sh
@@ -49,6 +55,12 @@ local-content-metrics-job-setup:
 local-content-metrics-job-clean:
 	bash scripts/local/content-metrics-job-clean.sh
 
+local-content-query-metrics-job-setup:
+	bash scripts/local/content-query-metrics-job-setup.sh
+
+local-content-query-metrics-job-clean:
+	bash scripts/local/content-query-metrics-job-clean.sh
+
 local-fake-log-generator-setup:
 	bash scripts/local/fake-log-generator-setup.sh
 
@@ -63,15 +75,26 @@ local-fake-content-generator-setup:
 local-fake-content-generator-clean:
 	bash scripts/local/fake-content-generator-clean.sh
 
-local-batch-job-setup:
-	bash scripts/local/batch-job-setup.sh
+local-sql-runner-job-setup:
+	bash scripts/local/sql-runner-job-setup.sh
 
-# Used to stop the running Flink BatchLogIngestion job and delete the kubectl job.
-local-batch-job-clean:
-	bash scripts/local/batch-job-clean.sh
+local-sql-runner-job-clean:
+	bash scripts/local/sql-runner-job-clean.sh
+
+local-sql-gateway-session-setup:
+	bash scripts/local/sql-gateway-session-setup.sh
+
+local-sql-gateway-session-clean:
+	bash scripts/local/sql-gateway-session-clean.sh
 
 local-redis-setup:
 	bash scripts/local/redis-setup.sh
 
 local-redis-clean:
 	bash scripts/local/redis-clean.sh
+
+local-redis-cluster-setup:
+	bash scripts/local/redis-cluster-setup.sh
+
+local-redis-cluster-clean:
+	bash scripts/local/redis-cluster-clean.sh

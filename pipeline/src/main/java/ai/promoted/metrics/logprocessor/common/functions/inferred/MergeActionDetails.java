@@ -2,12 +2,16 @@ package ai.promoted.metrics.logprocessor.common.functions.inferred;
 
 import ai.promoted.metrics.error.MismatchError;
 import ai.promoted.metrics.logprocessor.common.util.DebugIds;
-import ai.promoted.metrics.logprocessor.common.util.FlatUtil;
+import ai.promoted.metrics.logprocessor.common.util.TrackingUtil;
 import ai.promoted.proto.event.Action;
+import ai.promoted.proto.event.AttributedAction;
 import ai.promoted.proto.event.Cart;
 import ai.promoted.proto.event.CartContent;
-import ai.promoted.proto.event.JoinedEvent;
-import ai.promoted.proto.event.TinyEvent;
+import ai.promoted.proto.event.DroppedMergeActionDetails;
+import ai.promoted.proto.event.JoinedImpression;
+import ai.promoted.proto.event.TinyAttributedAction;
+import ai.promoted.proto.event.TinyInsertion;
+import ai.promoted.proto.event.Touchpoint;
 import ai.promoted.proto.event.UnionEvent;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -15,12 +19,13 @@ import java.time.Duration;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import org.apache.flink.api.common.functions.RuntimeContext;
 import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.api.common.typeinfo.Types;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.streaming.api.functions.co.KeyedCoProcessFunction;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
 
@@ -33,7 +38,11 @@ import org.apache.flink.util.OutputTag;
  * <p>TODO - maybe switch to regular interval join. Research data lake first. MergeImpressionDetails
  * is still useful because we can consolidate DeliveryLog details into less state.
  */
-public class MergeActionDetails extends AbstractMergeDetails {
+public class MergeActionDetails
+    extends AbstractMergeDetails<TinyAttributedAction, AttributedAction, AttributedAction.Builder> {
+  public static final OutputTag<DroppedMergeActionDetails> DROPPED_TAG =
+      new OutputTag<>("dropped") {};
+
   @VisibleForTesting final JoinedImpressionMerger joinedImpressionMerger;
   @VisibleForTesting final ActionMerger actionMerger;
   private final DebugIds debugIds;
@@ -45,7 +54,12 @@ public class MergeActionDetails extends AbstractMergeDetails {
       Duration missingEntityDelay,
       Long allTimersBeforeCauseBatchCleanup,
       DebugIds debugIds) {
-    super(batchCleanupWindow, missingEntityDelay, allTimersBeforeCauseBatchCleanup, debugIds);
+    super(
+        batchCleanupWindow,
+        missingEntityDelay,
+        allTimersBeforeCauseBatchCleanup,
+        debugIds,
+        TinyAttributedAction.class);
     this.joinedImpressionMerger = new JoinedImpressionMerger(joinedImpressionWindow, debugIds);
     this.actionMerger = new ActionMerger(actionWindow, debugIds);
     this.debugIds = debugIds;
@@ -59,7 +73,7 @@ public class MergeActionDetails extends AbstractMergeDetails {
   }
 
   @Override
-  public void processElement1(UnionEvent input, Context ctx, Collector<JoinedEvent> out)
+  public void processElement1(UnionEvent input, Context ctx, Collector<AttributedAction> out)
       throws Exception {
     // TODO - optimize the full records being stored in maps.  We can strip out fields we'll
     // eventually clear.
@@ -77,19 +91,21 @@ public class MergeActionDetails extends AbstractMergeDetails {
 
   @Override
   protected void addIncompleteTimers(
-      TinyEvent rhs, Context ctx, EnumSet<MissingEvent> missing, long timerTimestamp)
+      TinyAttributedAction rhs, Context ctx, EnumSet<MissingEvent> missing, long timerTimestamp)
       throws Exception {
     for (MissingEvent missingEvent : missing) {
       switch (missingEvent) {
         case JOINED_IMPRESSION:
           addIncompleteTimers(
               joinedImpressionMerger.impressionIdToIncompleteEventTimers,
-              rhs.getImpressionId(),
+              rhs.getTouchpoint().getJoinedImpression().getImpression().getImpressionId(),
               timerTimestamp);
           break;
         case ACTION:
           addIncompleteTimers(
-              actionMerger.actionIdToIncompleteEventTimers, rhs.getActionId(), timerTimestamp);
+              actionMerger.actionIdToIncompleteEventTimers,
+              rhs.getAction().getActionId(),
+              timerTimestamp);
           break;
         default:
           throw new UnsupportedOperationException("Unsupported MissingEntity=" + missingEvent);
@@ -98,8 +114,46 @@ public class MergeActionDetails extends AbstractMergeDetails {
   }
 
   @Override
-  protected String getAllRelatedStateString(
-      String viewId, String requestId, String impressionId, String actionId) throws Exception {
+  protected AttributedAction.Builder newBuilder() {
+    return AttributedAction.newBuilder();
+  }
+
+  @Override
+  protected AttributedAction build(AttributedAction.Builder builder) {
+    builder
+        .getActionBuilder()
+        .getTimingBuilder()
+        .setProcessingTimestamp(TrackingUtil.getProcessingTime());
+    return builder.build();
+  }
+
+  @Override
+  protected boolean matchesDebugIds(TinyAttributedAction rhs) {
+    return debugIds.matches(rhs);
+  }
+
+  @Override
+  protected void outputDropped(
+      KeyedCoProcessFunction.Context ctx,
+      TinyAttributedAction tinyEvent,
+      AttributedAction incompleteAttributedAction) {
+    ctx.output(
+        DROPPED_TAG,
+        DroppedMergeActionDetails.newBuilder()
+            .setAction(tinyEvent)
+            .setAttributedAction(incompleteAttributedAction)
+            .build());
+  }
+
+  @Override
+  protected String getAllRelatedStateString(TinyAttributedAction attributedAction)
+      throws Exception {
+    return getAllRelatedStateString(
+        attributedAction.getTouchpoint().getJoinedImpression().getImpression().getImpressionId(),
+        attributedAction.getAction().getActionId());
+  }
+
+  protected String getAllRelatedStateString(String impressionId, String actionId) throws Exception {
     return String.join(
         ",",
         ImmutableList.of(
@@ -110,9 +164,9 @@ public class MergeActionDetails extends AbstractMergeDetails {
   /** Returns the set of entity types which are missing. */
   @Override
   protected EnumSet<MissingEvent> fillInFull(
-      JoinedEvent.Builder builder,
-      TinyEvent rhs,
-      BiConsumer<OutputTag<MismatchError>, MismatchError> errorLogger)
+      AttributedAction.Builder builder,
+      TinyAttributedAction rhs,
+      Consumer<MismatchError> errorLogger)
       throws Exception {
     EnumSet<MissingEvent> missing = EnumSet.noneOf(MissingEvent.class);
     if (!joinedImpressionMerger.fillInFull(builder, rhs, errorLogger)) {
@@ -138,10 +192,11 @@ public class MergeActionDetails extends AbstractMergeDetails {
         && !missing.contains(MissingEvent.ACTION);
   }
 
-  final class JoinedImpressionMerger extends BaseMerger<JoinedEvent> {
+  // TODO - change this to be TouchpointMerger.
+  final class JoinedImpressionMerger extends BaseMerger<JoinedImpression> {
     private static final long serialVersionUID = 2L;
 
-    @VisibleForTesting MapState<String, JoinedEvent> idToJoinedImpression;
+    @VisibleForTesting MapState<String, JoinedImpression> idToJoinedImpression;
 
     // This map is to speed up out-of-order joins.  This map can be stale.
     // Some clean-up happens incrementally in processElement but it will miss some cases.
@@ -155,7 +210,8 @@ public class MergeActionDetails extends AbstractMergeDetails {
     public void open(RuntimeContext runtimeContext) throws Exception {
       idToJoinedImpression =
           runtimeContext.getMapState(
-              new MapStateDescriptor<>("id-to-joined-impression", String.class, JoinedEvent.class));
+              new MapStateDescriptor<>(
+                  "id-to-joined-impression", String.class, JoinedImpression.class));
       impressionIdToIncompleteEventTimers =
           runtimeContext.getMapState(
               // TODO(PRO-1683) - add caches back in.
@@ -166,39 +222,39 @@ public class MergeActionDetails extends AbstractMergeDetails {
     }
 
     @Override
-    public void addFull(JoinedEvent impression) throws Exception {
+    public void addFull(JoinedImpression impression) throws Exception {
       idToJoinedImpression.put(impression.getIds().getImpressionId(), impression);
     }
 
     @Override
     protected void tryProcessIncompleteEvents(
-        JoinedEvent impression,
+        JoinedImpression impression,
         boolean matchesDebugId,
-        BiConsumer<OutputTag<MismatchError>, MismatchError> errorLogger,
-        Collector<JoinedEvent> out)
+        Consumer<MismatchError> errorLogger,
+        Collector<AttributedAction> out,
+        long timestamp,
+        long watermark)
         throws Exception {
       tryProcessIncompleteEvents(
           impression.getIds().getImpressionId(),
           matchesDebugId,
           impressionIdToIncompleteEventTimers,
           errorLogger,
-          out);
+          out,
+          timestamp,
+          watermark);
     }
 
     @Override
-    protected String getDebugStateString(JoinedEvent impression) throws Exception {
-      return getAllRelatedStateString(
-          impression.getIds().getViewId(),
-          impression.getIds().getRequestId(),
-          impression.getIds().getImpressionId(),
-          "");
+    protected String getDebugStateString(JoinedImpression impression) throws Exception {
+      return getAllRelatedStateString(impression.getIds().getImpressionId(), "");
     }
 
     protected String getDebugStateString(String id) throws Exception {
       if (id.isEmpty()) {
         return "JoinedImpressionLogMerger{no key checked}";
       }
-      JoinedEvent impression = idToJoinedImpression.get(id);
+      JoinedImpression impression = idToJoinedImpression.get(id);
       List<Long> incompleteEventTimers = impressionIdToIncompleteEventTimers.get(id);
       return String.format(
           "JoinedImpressionMerger{idToJoinedImpression[%s]=%s, impressionIdToIncompleteEventTimers[%s]=%s}",
@@ -207,15 +263,17 @@ public class MergeActionDetails extends AbstractMergeDetails {
 
     /** Returns true iff all of the requested fields are included. */
     public boolean fillInFull(
-        JoinedEvent.Builder builder,
-        TinyEvent rhs,
-        BiConsumer<OutputTag<MismatchError>, MismatchError> errorLogger)
+        AttributedAction.Builder builder,
+        TinyAttributedAction rhs,
+        Consumer<MismatchError> errorLogger)
         throws Exception {
-      if (!rhs.getImpressionId().isEmpty()) {
-        JoinedEvent impression = idToJoinedImpression.get(rhs.getImpressionId());
-        if (impression != null) {
+      String impressionId =
+          rhs.getTouchpoint().getJoinedImpression().getImpression().getImpressionId();
+      if (!impressionId.isEmpty()) {
+        JoinedImpression joinedImpression = idToJoinedImpression.get(impressionId);
+        if (joinedImpression != null) {
           // Merge the whole message since it's the first record to be merged.
-          builder.mergeFrom(impression);
+          builder.setTouchpoint(Touchpoint.newBuilder().setJoinedImpression(joinedImpression));
         } else {
           return false;
         }
@@ -227,7 +285,7 @@ public class MergeActionDetails extends AbstractMergeDetails {
       cleanupDetailsState(
           idToJoinedImpression,
           timestamp,
-          (JoinedEvent impression) -> impression.getTiming().getLogTimestamp(),
+          impression -> impression.getTiming().getEventApiTimestamp(),
           window,
           "JoinedImpression",
           debugIds::matchesImpressionId);
@@ -269,20 +327,24 @@ public class MergeActionDetails extends AbstractMergeDetails {
     protected void tryProcessIncompleteEvents(
         Action action,
         boolean matchesDebugId,
-        BiConsumer<OutputTag<MismatchError>, MismatchError> errorLogger,
-        Collector<JoinedEvent> out)
+        Consumer<MismatchError> errorLogger,
+        Collector<AttributedAction> out,
+        long timestamp,
+        long watermark)
         throws Exception {
       tryProcessIncompleteEvents(
-          action.getActionId(), matchesDebugId, actionIdToIncompleteEventTimers, errorLogger, out);
+          action.getActionId(),
+          matchesDebugId,
+          actionIdToIncompleteEventTimers,
+          errorLogger,
+          out,
+          timestamp,
+          watermark);
     }
 
     @Override
     protected String getDebugStateString(Action action) throws Exception {
-      return getAllRelatedStateString(
-          action.getViewId(),
-          action.getRequestId(),
-          action.getImpressionId(),
-          action.getActionId());
+      return getAllRelatedStateString(action.getImpressionId(), action.getActionId());
     }
 
     protected String getDebugStateString(String id) throws Exception {
@@ -298,16 +360,17 @@ public class MergeActionDetails extends AbstractMergeDetails {
 
     /** Returns true iff all of the requested fields are included. */
     public boolean fillInFull(
-        JoinedEvent.Builder builder,
-        TinyEvent rhs,
-        BiConsumer<OutputTag<MismatchError>, MismatchError> errorLogger)
+        AttributedAction.Builder builder,
+        TinyAttributedAction rhs,
+        Consumer<MismatchError> errorLogger)
         throws Exception {
-      if (!rhs.getActionId().isEmpty()) {
-        Action action = idToAction.get(rhs.getActionId());
+      String actionId = rhs.getAction().getActionId();
+      if (!actionId.isEmpty()) {
+        Action action = idToAction.get(actionId);
         if (action != null) {
-          FlatUtil.setFlatAction(builder, action, errorLogger);
-          if (builder.getAction().hasCart()) {
-            // `Action.singleCartItem` needs details from TinyAction to set correctly.
+          builder.setAction(action).setAttribution(rhs.getAttribution());
+          if (action.hasCart()) {
+            // Populate `Action.singleCartItem` using the action content details from TinyActions.
             // This is a little weird to have inside MergeActionDetails.
             // The code tries to pick the most relevant CartItem.  If there are similar CartItems,
             // the first one is picked.
@@ -318,10 +381,10 @@ public class MergeActionDetails extends AbstractMergeDetails {
               if (cartItem.getQuantity() == 0) {
                 cartItem = cartItem.toBuilder().setQuantity(1).build();
               }
+              // TODO - consider moving this onto AttributedAction instead.
               builder.getActionBuilder().setSingleCartContent(cartItem);
             }
           }
-          builder.setTiming(action.getTiming());
         } else {
           return false;
         }
@@ -329,17 +392,37 @@ public class MergeActionDetails extends AbstractMergeDetails {
       return true;
     }
 
-    private Optional<CartContent> getMatchingCartContent(Cart cart, TinyEvent rhs) {
-      Optional<CartContent> cartContent = getMatchingCartContent(cart, rhs.getContentId());
-      if (cartContent.isPresent()) {
-        return cartContent;
-      }
-      for (String contentId : rhs.getOtherContentIdsMap().values()) {
-        cartContent = getMatchingCartContent(cart, contentId);
+    // Prefer Action content_ids.  Then fallback to Insertion content_ids.
+    private Optional<CartContent> getMatchingCartContent(Cart cart, TinyAttributedAction rhs) {
+      if (!rhs.getAction().getContentId().isEmpty()) {
+        Optional<CartContent> cartContent =
+            getMatchingCartContent(cart, rhs.getAction().getContentId());
         if (cartContent.isPresent()) {
           return cartContent;
         }
       }
+      for (String contentId : rhs.getAction().getOtherContentIdsMap().values()) {
+        Optional<CartContent> cartContent = getMatchingCartContent(cart, contentId);
+        if (cartContent.isPresent()) {
+          return cartContent;
+        }
+      }
+
+      TinyInsertion insertion = rhs.getTouchpoint().getJoinedImpression().getInsertion();
+      String insertionContentId = insertion.getCore().getContentId();
+      if (!insertionContentId.isEmpty()) {
+        Optional<CartContent> cartContent = getMatchingCartContent(cart, insertionContentId);
+        if (cartContent.isPresent()) {
+          return cartContent;
+        }
+      }
+      for (String contentId : insertion.getCore().getOtherContentIdsMap().values()) {
+        Optional<CartContent> cartContent = getMatchingCartContent(cart, contentId);
+        if (cartContent.isPresent()) {
+          return cartContent;
+        }
+      }
+
       return Optional.empty();
     }
 
@@ -356,7 +439,7 @@ public class MergeActionDetails extends AbstractMergeDetails {
       cleanupDetailsState(
           idToAction,
           timestamp,
-          (Action action) -> action.getTiming().getLogTimestamp(),
+          (Action action) -> action.getTiming().getEventApiTimestamp(),
           window,
           "Action",
           debugIds::matchesActionId);

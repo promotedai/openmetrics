@@ -1,11 +1,10 @@
 package ai.promoted.metrics.logprocessor.common.functions.inferred;
 
 import ai.promoted.metrics.error.MismatchError;
-import ai.promoted.metrics.logprocessor.common.functions.SerializableFunction;
+import ai.promoted.metrics.logprocessor.common.error.MismatchErrorTag;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableFunction;
 import ai.promoted.metrics.logprocessor.common.util.DebugIds;
-import ai.promoted.proto.event.DroppedMergeDetailsEvent;
-import ai.promoted.proto.event.JoinedEvent;
-import ai.promoted.proto.event.TinyEvent;
+import ai.promoted.metrics.logprocessor.common.util.LogUtil;
 import ai.promoted.proto.event.UnionEvent;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -16,7 +15,7 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.flink.api.common.state.MapState;
@@ -27,27 +26,19 @@ import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.co.KeyedCoProcessFunction;
 import org.apache.flink.util.Collector;
-import org.apache.flink.util.OutputTag;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-/** Base class for MergeDetails classes. Allows joining full details back onto TinyEvent streams. */
-public abstract class AbstractMergeDetails
-    extends KeyedCoProcessFunction<Tuple2<Long, String>, UnionEvent, TinyEvent, JoinedEvent> {
+/**
+ * Base class for MergeDetails classes. Allows joining full details back onto TinyEvent streams.
+ *
+ * @param <T> Tiny event
+ * @param <J> Joined event
+ * @param <JB> Joined event builder
+ */
+public abstract class AbstractMergeDetails<T, J, JB>
+    extends KeyedCoProcessFunction<Tuple2<Long, String>, UnionEvent, T, J> {
   private static final Logger LOGGER = LogManager.getLogger(AbstractMergeDetails.class);
-
-  @VisibleForTesting
-  enum MissingEvent {
-    VIEW,
-    DELIERY_LOG,
-    IMPRESSION,
-    JOINED_IMPRESSION,
-    ACTION,
-  }
-
-  public static final OutputTag<DroppedMergeDetailsEvent> DROPPED_TAG =
-      new OutputTag<DroppedMergeDetailsEvent>("dropped") {};
-
   // We'll do Flink state cleanup at this interval.
   private final Duration batchCleanupPeriod;
   private final Duration missingEntityDelay;
@@ -55,22 +46,24 @@ public abstract class AbstractMergeDetails
   // Changing cleanup intervals can cause state to be leaked.  Defaults to 0.
   private final long batchCleanupAllTimersBeforeTimestamp;
   private final DebugIds debugIds;
-
+  private final Class<T> tinyEventClazz;
   // For now, if we have IDs but are missing the entities, wait the full missingEntityDelay and then
   // output.
   // This algorithm simplifies this class for now.  We'd need a few more MapStates to output
   // earlier.
-  @VisibleForTesting MapState<Long, List<TinyEvent>> timeToIncompleteEvents;
+  @VisibleForTesting MapState<Long, List<T>> timeToIncompleteEvents;
 
   public AbstractMergeDetails(
       Duration batchCleanupPeriod,
       Duration missingEntityDelay,
       long batchCleanupAllTimersBeforeTimestamp,
-      DebugIds debugIds) {
+      DebugIds debugIds,
+      Class<T> tinyEventClazz) {
     this.batchCleanupPeriod = batchCleanupPeriod;
     this.missingEntityDelay = missingEntityDelay;
     this.batchCleanupAllTimersBeforeTimestamp = batchCleanupAllTimersBeforeTimestamp;
     this.debugIds = debugIds;
+    this.tinyEventClazz = tinyEventClazz;
   }
 
   @Override
@@ -83,54 +76,50 @@ public abstract class AbstractMergeDetails
                 new MapStateDescriptor<>(
                     "time-to-incomplete-event",
                     Types.LONG,
-                    Types.LIST(TypeInformation.of(TinyEvent.class))));
+                    Types.LIST(TypeInformation.of(tinyEventClazz))));
   }
 
   @Override
-  public void processElement2(TinyEvent rhs, Context ctx, Collector<JoinedEvent> out)
-      throws Exception {
-    JoinedEvent.Builder builder = JoinedEvent.newBuilder();
-    EnumSet<MissingEvent> missing = fillInFull(builder, rhs, ctx::output);
-    boolean matchesDebugId = debugIds.matches(rhs);
+  public void processElement2(T rhs, Context ctx, Collector<J> out) throws Exception {
+    JB builder = newBuilder();
+    EnumSet<MissingEvent> missing =
+        fillInFull(builder, rhs, error -> ctx.output(MismatchErrorTag.TAG, error));
+    boolean matchesDebugId = matchesDebugIds(rhs);
 
     // Prefer outputting if we have the required events in order to save Flink state.
-    // This really only hurts a small edge case with View joins.
+    // This really only hurts a small edge case with Optional joins (none currently exist).
     if (hasRequiredEvents(missing)) {
-      JoinedEvent event = builder.build();
+      J event = build(builder);
       if (matchesDebugId) {
+        String rhsString = LogUtil.truncate(rhs.toString());
+        String eventString = LogUtil.truncate(event.toString());
         LOGGER.info(
-            "{} processElement2 complete output; rhs: {}\nevent: {}\nts:{}\nwatermark: {}",
+            "{} processElement2 complete output; rhs: {}\nevent: {}, key: {}, ts:{}, watermark: {}",
             getClass().getSimpleName(),
-            rhs,
-            event,
+            rhsString,
+            eventString,
+            ctx.getCurrentKey(),
             ctx.timestamp(),
             ctx.timerService().currentWatermark());
-      }
-      if (event.getIds().getImpressionId().isEmpty()) {
-        // To help catch PRO-1758 - bad flat_impression output.  Some of the records are completely
-        // empty.  Some do not
-        // have an impressionId.  Log more info for now to help track it down.
-        String error =
-            String.format(
-                "Outputting an incomplete JoinedEvent from %s.processElement2.  event=%s, rhs=%s",
-                getClass().getSimpleName(), event, rhs);
-        LOGGER.error(error);
       }
       out.collect(event);
       // We do not need to run a batch cleanup timer here since state should not have changed.
     } else {
       long timerTimestamp = ctx.timestamp() + missingEntityDelay.toMillis();
       if (matchesDebugId) {
+        String rhsString = LogUtil.truncate(rhs.toString());
+        String missingString = LogUtil.truncate(missing.toString());
         LOGGER.info(
-            "{} processElement2 incomplete output; rhs: {}\nmissing: {}\ntimerTimestamp: {}\nevent: {}\nts:{}\nwatermark: {}",
+            "{} processElement2 incomplete output; rhs: {}, missing: {}, key: {}, timerTimestamp: {}, ts:{}, watermark: {}",
             getClass().getSimpleName(),
-            rhs,
-            missing,
+            rhsString,
+            missingString,
+            ctx.getCurrentKey(),
             timerTimestamp,
             ctx.timestamp(),
             ctx.timerService().currentWatermark());
       }
-      List<TinyEvent> incompleteEvents = timeToIncompleteEvents.get(timerTimestamp);
+      List<T> incompleteEvents = timeToIncompleteEvents.get(timerTimestamp);
       if (incompleteEvents == null) {
         incompleteEvents = new ArrayList<>();
       } else {
@@ -151,8 +140,7 @@ public abstract class AbstractMergeDetails
    * joins.
    */
   protected abstract void addIncompleteTimers(
-      TinyEvent rhs, Context ctx, EnumSet<MissingEvent> missing, long timerTimestamp)
-      throws Exception;
+      T rhs, Context ctx, EnumSet<MissingEvent> missing, long timerTimestamp) throws Exception;
 
   /** Returns the next, closest cleanup timestamp. */
   private long toCleanupTimestamp(long timestamp) {
@@ -173,60 +161,35 @@ public abstract class AbstractMergeDetails
     }
   }
 
-  /** Returns the set of entity types which are missing. */
-  protected abstract EnumSet<MissingEvent> fillInFull(
-      JoinedEvent.Builder builder,
-      TinyEvent rhs,
-      BiConsumer<OutputTag<MismatchError>, MismatchError> errorLogger)
-      throws Exception;
-
   /**
    * Quick v1 cleaning solution. Scan through state and clear out values. Infrequently do bigger
    * cleanup.
    */
   @Override
-  public void onTimer(long timestamp, OnTimerContext ctx, Collector<JoinedEvent> out)
-      throws Exception {
+  public void onTimer(long timestamp, OnTimerContext ctx, Collector<J> out) throws Exception {
     super.onTimer(timestamp, ctx, out);
-    List<TinyEvent> incompleteEvents = timeToIncompleteEvents.get(timestamp);
+    List<T> incompleteEvents = timeToIncompleteEvents.get(timestamp);
     if (incompleteEvents != null) {
-      for (TinyEvent incompleteEvent : incompleteEvents) {
-        JoinedEvent.Builder builder = JoinedEvent.newBuilder();
-        EnumSet<MissingEvent> missing = fillInFull(builder, incompleteEvent, ctx::output);
+      for (T incompleteEvent : incompleteEvents) {
+        JB builder = newBuilder();
+        EnumSet<MissingEvent> missing =
+            fillInFull(builder, incompleteEvent, error -> ctx.output(MismatchErrorTag.TAG, error));
 
-        JoinedEvent event = builder.build();
-        if (debugIds.matches(incompleteEvent)) {
+        J event = build(builder);
+        if (matchesDebugIds(incompleteEvent)) {
           LOGGER.info(
-              "{} onTimer incomplete output; incompleteEvent: {}\nmissing: {}\nevent: {}, state: {}",
+              "{} onTimer incomplete output; incompleteEvent: {}, missing: {}, event: {}, key: {}, state: {}",
               getClass().getSimpleName(),
               incompleteEvent,
               missing,
               event,
-              getAllRelatedStateString(
-                  incompleteEvent.getViewId(),
-                  incompleteEvent.getRequestId(),
-                  incompleteEvent.getImpressionId(),
-                  incompleteEvent.getActionId()));
-        }
-        if (event.getIds().getImpressionId().isEmpty()) {
-          // To help catch PRO-1758 - bad flat_impression output.  Some of the records are
-          // completely empty.  Some do not
-          // have an impressionId.  Log more info for now to help track it down.
-          String error =
-              String.format(
-                  "Outputting an incomplete JoinedEvent from %s.onTimer.  event=%s, incompleteEvent=%s, missing=%s",
-                  getClass().getSimpleName(), event, incompleteEvent, missing);
-          LOGGER.error(error);
+              ctx.getCurrentKey(),
+              getAllRelatedStateString(incompleteEvent));
         }
         if (hasRequiredEvents(missing)) {
           out.collect(event);
         } else {
-          ctx.output(
-              DROPPED_TAG,
-              DroppedMergeDetailsEvent.newBuilder()
-                  .setTinyEvent(incompleteEvent)
-                  .setJoinedEvent(event)
-                  .build());
+          outputDropped(ctx, incompleteEvent, event);
         }
       }
     }
@@ -234,9 +197,22 @@ public abstract class AbstractMergeDetails
     cleanupMergers(timestamp);
   }
 
+  // TODO - we migh be able to remove errorLogger.
+  /** Returns the set of entity types which are missing. */
+  protected abstract EnumSet<MissingEvent> fillInFull(
+      JB builder, T rhs, Consumer<MismatchError> errorLogger) throws Exception;
+
+  protected abstract JB newBuilder();
+
+  protected abstract J build(JB builder);
+
+  protected abstract boolean matchesDebugIds(T rhs);
+
+  protected abstract void outputDropped(
+      KeyedCoProcessFunction.Context ctx, T tinyEvent, J joinedEvent);
+
   /** Returns a debug string with relevant state. */
-  protected abstract String getAllRelatedStateString(
-      String viewId, String requestId, String impressionId, String actionId) throws Exception;
+  protected abstract String getAllRelatedStateString(T event) throws Exception;
 
   /** Clean up Merger state. */
   protected abstract void cleanupMergers(long timestamp) throws Exception;
@@ -294,7 +270,7 @@ public abstract class AbstractMergeDetails
       long rowTimestamp = getRowTimestamp.apply(entry.getValue());
       if (rowTimestamp <= 0) {
         throw new IllegalArgumentException(
-            rowType + " does not have logTimestamp, row=" + entry.getValue());
+            rowType + " does not have eventApiTimestamp, row=" + entry.getValue());
       }
       boolean remove = rowTimestamp < timestamp - cleanupWindow.toMillis();
       if (remove) {
@@ -302,7 +278,7 @@ public abstract class AbstractMergeDetails
       }
       if (matchesDebugId) {
         LOGGER.info(
-            "{} cleanupMapState {} entry; rowType: {}\nkey: {}\ntimestamp: {}",
+            "{} cleanupMapState {} entry; rowType: {}, key: {}, timestamp: {}",
             getClass().getSimpleName(),
             remove ? "removed" : "kept",
             rowType,
@@ -315,69 +291,96 @@ public abstract class AbstractMergeDetails
     }
   }
 
+  @VisibleForTesting
+  enum MissingEvent {
+    DELIERY_LOG,
+    IMPRESSION,
+    JOINED_IMPRESSION,
+    ACTION,
+  }
+
   /**
    * ABC for Mergers. Done to help template processing of each entity type.
    *
-   * @param <T> The main type for the Merger.
+   * @param <D> dimension (full event details that we're joining in)
    */
-  abstract class BaseMerger<T> implements Serializable {
+  abstract class BaseMerger<D> implements Serializable {
     private static final long serialVersionUID = 2L;
 
-    protected final SerializableFunction<UnionEvent, T> getEvent;
+    protected final SerializableFunction<UnionEvent, D> getEvent;
     protected final Duration window;
-    protected final SerializableFunction<T, Boolean> matchesDebugIdFn;
+    protected final SerializableFunction<D, Boolean> matchesDebugIdFn;
 
     // TODO - construct that contains getEvent and cleanupDuration.
     protected BaseMerger(
-        SerializableFunction<UnionEvent, T> getEvent,
+        SerializableFunction<UnionEvent, D> getEvent,
         Duration window,
-        SerializableFunction<T, Boolean> matchesDebugIdFn) {
+        SerializableFunction<D, Boolean> matchesDebugIdFn) {
       this.getEvent = getEvent;
       this.window = window;
       this.matchesDebugIdFn = matchesDebugIdFn;
     }
 
-    void processElement1(UnionEvent input, Context ctx, Collector<JoinedEvent> out)
-        throws Exception {
-      T event = getEvent.apply(input);
-      boolean matchesDebugId = matchesDebugIdFn.apply(event);
+    void processElement1(UnionEvent input, Context ctx, Collector<J> out) throws Exception {
+      D dimension = getEvent.apply(input);
+      boolean matchesDebugId = matchesDebugIdFn.apply(dimension);
       // TODO - switch to log timestamps on the records.
       long cleanupTimestamp = toCleanupTimestamp(ctx.timestamp() + window.toMillis());
       if (matchesDebugId) {
+        String inputString = LogUtil.truncate(input.toString());
         LOGGER.info(
-            "AbstractMergeDetails.{} processElement1; eventCase={} input={}\n ts:{}\nwatermark: {}\ncleanupTs: {}, state: {}",
+            "AbstractMergeDetails.{} processElement1; eventCase={} input={}, ts:{}, watermark: {}, cleanupTs: {}, key: {}, state: {}",
             this.getClass().getSimpleName(),
             input.getEventCase(),
-            input,
+            inputString,
             ctx.timestamp(),
             ctx.timerService().currentWatermark(),
             cleanupTimestamp,
-            getDebugStateString(event));
+            ctx.getCurrentKey(),
+            getDebugStateString(dimension));
       }
-      addFull(event);
-      tryProcessIncompleteEvents(event, matchesDebugId, ctx::output, out);
+      addFull(dimension);
+      if (matchesDebugId) {
+        String inputString = LogUtil.truncate(input.toString());
+        LOGGER.info(
+            "AbstractMergeDetails.{} processElement1 after addFull; eventCase={}, input={}, key: {}, state: {}",
+            this.getClass().getSimpleName(),
+            input.getEventCase(),
+            inputString,
+            ctx.getCurrentKey(),
+            getDebugStateString(dimension));
+      }
+      tryProcessIncompleteEvents(
+          dimension,
+          matchesDebugId,
+          error -> ctx.output(MismatchErrorTag.TAG, error),
+          out,
+          ctx.timestamp(),
+          ctx.timerService().currentWatermark());
       ctx.timerService().registerEventTimeTimer(cleanupTimestamp);
     }
 
     /** Adds the full event into the merger's state. */
-    protected abstract void addFull(T event) throws Exception;
+    protected abstract void addFull(D dimension) throws Exception;
 
     /**
      * Tries to process incomplete events. Takes {@code out} in case has to output the now completed
      * events.
      */
     protected abstract void tryProcessIncompleteEvents(
-        T event,
+        D dimension,
         boolean matchesDebugId,
-        BiConsumer<OutputTag<MismatchError>, MismatchError> errorLogger,
-        Collector<JoinedEvent> out)
+        Consumer<MismatchError> errorLogger,
+        Collector<J> out,
+        long timestamp,
+        long watermark)
         throws Exception;
 
     /**
      * Returns a string for debug logging that represents matching state for the entity ID. Only
-     * matches with the ID fields set on `event`. This might have a bunch of missing fields.
+     * matches with the ID fields set on `dimension`. This might have a bunch of missing fields.
      */
-    protected abstract String getDebugStateString(T event) throws Exception;
+    protected abstract String getDebugStateString(D dimension) throws Exception;
 
     /**
      * Go through idToIncompleteEventTimers for the key and sees if we should immediately output any
@@ -387,56 +390,65 @@ public abstract class AbstractMergeDetails
         String key,
         boolean matchesDebugId,
         MapState<String, List<Long>> idToIncompleteEventTimers,
-        BiConsumer<OutputTag<MismatchError>, MismatchError> errorLogger,
-        Collector<JoinedEvent> out)
+        Consumer<MismatchError> errorLogger,
+        Collector<J> out,
+        long timestamp,
+        long watermark)
         throws Exception {
       List<Long> incompleteTimers = idToIncompleteEventTimers.get(key);
       if (incompleteTimers != null) {
         ImmutableList.Builder<Long> incompleteTimersBuilder = ImmutableList.builder();
         for (Long incompleteTimer : incompleteTimers) {
-          List<TinyEvent> incompleteEvents = timeToIncompleteEvents.get(incompleteTimer);
+          List<T> incompleteEvents = timeToIncompleteEvents.get(incompleteTimer);
           if (incompleteEvents != null) {
-            ImmutableList.Builder<TinyEvent> stillIncompleteEventsBuilder = ImmutableList.builder();
-            for (TinyEvent incompleteEvent : incompleteEvents) {
-              JoinedEvent.Builder builder = JoinedEvent.newBuilder();
+            ImmutableList.Builder<T> stillIncompleteEventsBuilder = ImmutableList.builder();
+            for (T incompleteEvent : incompleteEvents) {
+              JB builder = newBuilder();
               EnumSet<MissingEvent> missingEvents =
                   fillInFull(builder, incompleteEvent, errorLogger);
               // Prefer outputting if we have the required events in order to save Flink state.
-              // This really only hurts a small edge case with View joins.
+              // This really only hurts a small edge case with optional joins (none currently
+              // exist).
               if (hasRequiredEvents(missingEvents)) {
-                JoinedEvent joinedEvent = builder.build();
+                J joinedEvent = build(builder);
                 if (matchesDebugId) {
                   LOGGER.info(
-                      "AbstractMergeDetails.{} tryProcessIncompleteEvents output complete; key={}\njoinedEvent={}",
+                      "AbstractMergeDetails.{} tryProcessIncompleteEvents output complete; key={}, joinedEvent={}, ts={}, watermark={}",
                       this.getClass().getSimpleName(),
                       key,
-                      joinedEvent);
+                      joinedEvent,
+                      timestamp,
+                      watermark);
                 }
                 out.collect(joinedEvent);
               } else {
                 stillIncompleteEventsBuilder.add(incompleteEvent);
               }
             }
-            List<TinyEvent> stillIncompleteEvents = stillIncompleteEventsBuilder.build();
+            List<T> stillIncompleteEvents = stillIncompleteEventsBuilder.build();
             if (stillIncompleteEvents.isEmpty()) {
               timeToIncompleteEvents.remove(incompleteTimer);
               if (matchesDebugId) {
                 LOGGER.info(
-                    "AbstractMergeDetails.{} tryProcessIncompleteEvents finished entry in timeToIncompleteEvents; key={}, incompleteTimer={}",
+                    "AbstractMergeDetails.{} tryProcessIncompleteEvents finished entry in timeToIncompleteEvents; key={}, incompleteTimer={}, ts={}, watermark={}",
                     this.getClass().getSimpleName(),
                     key,
-                    incompleteTimer);
+                    incompleteTimer,
+                    timestamp,
+                    watermark);
               }
             } else {
               timeToIncompleteEvents.put(incompleteTimer, stillIncompleteEvents);
               incompleteTimersBuilder.add(incompleteTimer);
               if (matchesDebugId) {
                 LOGGER.info(
-                    "AbstractMergeDetails.{} tryProcessIncompleteEvents still has entry in timeToIncompleteEvents; key={}\nincompleteTimer={}\nstillIncompleteEvents{}",
+                    "AbstractMergeDetails.{} tryProcessIncompleteEvents still has entry in timeToIncompleteEvents; key={}, incompleteTimer={}, stillIncompleteEvents{}, ts={}, watermark={}",
                     this.getClass().getSimpleName(),
                     key,
                     incompleteTimer,
-                    stillIncompleteEvents);
+                    stillIncompleteEvents,
+                    timestamp,
+                    watermark);
               }
             }
           }
@@ -446,18 +458,22 @@ public abstract class AbstractMergeDetails
           idToIncompleteEventTimers.remove(key);
           if (matchesDebugId) {
             LOGGER.info(
-                "AbstractMergeDetails.{} tryProcessIncompleteEvents finished entry idToIncompleteEventTimers; key={}",
+                "AbstractMergeDetails.{} tryProcessIncompleteEvents finished entry idToIncompleteEventTimers; key={}, ts={}, watermark={}",
                 this.getClass().getSimpleName(),
-                key);
+                key,
+                timestamp,
+                watermark);
           }
         } else {
           idToIncompleteEventTimers.put(key, newIncompleteTimers);
           if (matchesDebugId) {
             LOGGER.info(
-                "AbstractMergeDetails.{} tryProcessIncompleteEvents still has entry in idToIncompleteEventTimers; key={}\nnewIncompleteTimers={}",
+                "AbstractMergeDetails.{} tryProcessIncompleteEvents still has entry in idToIncompleteEventTimers; key={}, newIncompleteTimers={}, ts={}, watermark={}",
                 this.getClass().getSimpleName(),
                 key,
-                newIncompleteTimers);
+                newIncompleteTimers,
+                timestamp,
+                watermark);
           }
         }
       }

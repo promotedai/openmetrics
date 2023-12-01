@@ -6,7 +6,8 @@ import ai.promoted.proto.event.Action;
 import ai.promoted.proto.event.ActionType;
 import ai.promoted.proto.event.Cart;
 import ai.promoted.proto.event.CartContent;
-import ai.promoted.proto.event.TinyEvent;
+import ai.promoted.proto.event.TinyAction;
+import ai.promoted.proto.event.TinyCommonInfo;
 import com.google.common.collect.ImmutableList;
 import org.apache.flink.util.Collector;
 import org.junit.jupiter.api.Test;
@@ -19,8 +20,8 @@ public class ToTinyActionUnitTest {
     Action action =
         Action.newBuilder()
             .setPlatformId(1L)
-            .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId1").build())
-            .setTiming(Timing.newBuilder().setLogTimestamp(1))
+            .setUserInfo(UserInfo.newBuilder().setAnonUserId("anonUserId1").build())
+            .setTiming(Timing.newBuilder().setEventApiTimestamp(1))
             .setRequestId("req1")
             .setViewId("view1")
             .setInsertionId("ins1")
@@ -29,20 +30,23 @@ public class ToTinyActionUnitTest {
             .setActionId("act1")
             .setActionType(ActionType.NAVIGATE)
             .build();
-    Collector<TinyEvent> out = Mockito.mock(Collector.class);
+    Collector<TinyAction> out = Mockito.mock(Collector.class);
     new ToTinyAction(ImmutableList.of()).flatMap(action, out);
     Mockito.verify(out)
         .collect(
-            TinyEvent.newBuilder()
-                .setPlatformId(1L)
-                .setLogUserId("logUserId1")
-                .setLogTimestamp(1L)
+            TinyAction.newBuilder()
+                .setCommon(
+                    TinyCommonInfo.newBuilder()
+                        .setPlatformId(1L)
+                        .setAnonUserId("anonUserId1")
+                        .setEventApiTimestamp(1L))
                 .setViewId("view1")
                 .setRequestId("req1")
                 .setInsertionId("ins1")
-                .setContentId("content1")
                 .setImpressionId("imp1")
                 .setActionId("act1")
+                .setActionType(ActionType.NAVIGATE)
+                .setContentId("content1")
                 .build());
     Mockito.verifyNoMoreInteractions(out);
   }
@@ -52,8 +56,8 @@ public class ToTinyActionUnitTest {
     Action action =
         Action.newBuilder()
             .setPlatformId(1L)
-            .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId1").build())
-            .setTiming(Timing.newBuilder().setLogTimestamp(1))
+            .setUserInfo(UserInfo.newBuilder().setAnonUserId("anonUserId1").build())
+            .setTiming(Timing.newBuilder().setEventApiTimestamp(1))
             .setRequestId("req1")
             .setViewId("view1")
             .setInsertionId("ins1")
@@ -62,20 +66,23 @@ public class ToTinyActionUnitTest {
             .setActionId("act1")
             .setActionType(ActionType.PURCHASE)
             .build();
-    Collector<TinyEvent> out = Mockito.mock(Collector.class);
+    Collector<TinyAction> out = Mockito.mock(Collector.class);
     new ToTinyAction(ImmutableList.of()).flatMap(action, out);
     Mockito.verify(out)
         .collect(
-            TinyEvent.newBuilder()
-                .setPlatformId(1L)
-                .setLogUserId("logUserId1")
-                .setLogTimestamp(1L)
+            TinyAction.newBuilder()
+                .setCommon(
+                    TinyCommonInfo.newBuilder()
+                        .setPlatformId(1L)
+                        .setAnonUserId("anonUserId1")
+                        .setEventApiTimestamp(1L))
                 .setViewId("view1")
                 .setRequestId("req1")
                 .setInsertionId("ins1")
                 .setContentId("content1")
                 .setImpressionId("imp1")
                 .setActionId("act1")
+                .setActionType(ActionType.PURCHASE)
                 .build());
     Mockito.verifyNoMoreInteractions(out);
   }
@@ -85,8 +92,8 @@ public class ToTinyActionUnitTest {
     Action action =
         Action.newBuilder()
             .setPlatformId(1L)
-            .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId1").build())
-            .setTiming(Timing.newBuilder().setLogTimestamp(1))
+            .setUserInfo(UserInfo.newBuilder().setAnonUserId("anonUserId1").build())
+            .setTiming(Timing.newBuilder().setEventApiTimestamp(1))
             .setRequestId("req1")
             .setViewId("view1")
             .setInsertionId("ins1")
@@ -96,16 +103,19 @@ public class ToTinyActionUnitTest {
             .setCart(
                 Cart.newBuilder().addContents(CartContent.newBuilder().setContentId("content1")))
             .build();
-    Collector<TinyEvent> out = Mockito.mock(Collector.class);
+    Collector<TinyAction> out = Mockito.mock(Collector.class);
     new ToTinyAction(ImmutableList.of()).flatMap(action, out);
     Mockito.verify(out)
         .collect(
-            TinyEvent.newBuilder()
-                .setPlatformId(1L)
-                .setLogUserId("logUserId1")
-                .setLogTimestamp(1L)
+            TinyAction.newBuilder()
+                .setCommon(
+                    TinyCommonInfo.newBuilder()
+                        .setPlatformId(1L)
+                        .setAnonUserId("anonUserId1")
+                        .setEventApiTimestamp(1L))
                 .setContentId("content1")
                 .setActionId("act1")
+                .setActionType(ActionType.PURCHASE)
                 .build());
     Mockito.verifyNoMoreInteractions(out);
   }
@@ -115,8 +125,8 @@ public class ToTinyActionUnitTest {
     Action action =
         Action.newBuilder()
             .setPlatformId(1L)
-            .setUserInfo(UserInfo.newBuilder().setLogUserId("logUserId1").build())
-            .setTiming(Timing.newBuilder().setLogTimestamp(1))
+            .setUserInfo(UserInfo.newBuilder().setAnonUserId("anonUserId1").build())
+            .setTiming(Timing.newBuilder().setEventApiTimestamp(1))
             .setRequestId("req1")
             .setViewId("view1")
             .setInsertionId("ins1")
@@ -128,25 +138,31 @@ public class ToTinyActionUnitTest {
                     .addContents(CartContent.newBuilder().setContentId("content1"))
                     .addContents(CartContent.newBuilder().setContentId("content2")))
             .build();
-    Collector<TinyEvent> out = Mockito.mock(Collector.class);
+    Collector<TinyAction> out = Mockito.mock(Collector.class);
     new ToTinyAction(ImmutableList.of()).flatMap(action, out);
     Mockito.verify(out)
         .collect(
-            TinyEvent.newBuilder()
-                .setPlatformId(1L)
-                .setLogUserId("logUserId1")
-                .setLogTimestamp(1L)
+            TinyAction.newBuilder()
+                .setCommon(
+                    TinyCommonInfo.newBuilder()
+                        .setPlatformId(1L)
+                        .setAnonUserId("anonUserId1")
+                        .setEventApiTimestamp(1L))
                 .setContentId("content1")
                 .setActionId("act1")
+                .setActionType(ActionType.PURCHASE)
                 .build());
     Mockito.verify(out)
         .collect(
-            TinyEvent.newBuilder()
-                .setPlatformId(1L)
-                .setLogUserId("logUserId1")
-                .setLogTimestamp(1L)
+            TinyAction.newBuilder()
+                .setCommon(
+                    TinyCommonInfo.newBuilder()
+                        .setPlatformId(1L)
+                        .setAnonUserId("anonUserId1")
+                        .setEventApiTimestamp(1L))
                 .setContentId("content2")
                 .setActionId("act1")
+                .setActionType(ActionType.PURCHASE)
                 .build());
     Mockito.verifyNoMoreInteractions(out);
   }

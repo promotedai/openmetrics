@@ -205,7 +205,7 @@ public class SuffixedFileSystemTableSink extends PromotedAbstractFileSystemTable
       ProviderContext providerContext, DataStream<RowData> dataStream, Context sinkContext) {
     final int inputParallelism = dataStream.getParallelism();
     final int parallelism = Optional.ofNullable(configuredParallelism).orElse(inputParallelism);
-
+    boolean parallelismConfigured = this.configuredParallelism != null;
     if (sinkContext.isBounded()) {
       return createBatchSink(dataStream, sinkContext, parallelism);
     } else {
@@ -213,7 +213,8 @@ public class SuffixedFileSystemTableSink extends PromotedAbstractFileSystemTable
         throw new IllegalStateException("Streaming mode not support overwrite.");
       }
 
-      return createStreamingSink(providerContext, dataStream, sinkContext, parallelism);
+      return createStreamingSink(
+          providerContext, dataStream, sinkContext, parallelism, parallelismConfigured);
     }
   }
 
@@ -248,7 +249,8 @@ public class SuffixedFileSystemTableSink extends PromotedAbstractFileSystemTable
       ProviderContext providerContext,
       DataStream<RowData> dataStream,
       Context sinkContext,
-      final int parallelism) {
+      final int parallelism,
+      boolean parallelismConfigured) {
     FileSystemFactory fsFactory = FileSystem::get;
     RowDataPartitionComputer computer = partitionComputer();
 
@@ -320,7 +322,8 @@ public class SuffixedFileSystemTableSink extends PromotedAbstractFileSystemTable
               path,
               reader,
               compactionSize,
-              parallelism);
+              parallelism,
+              parallelismConfigured);
     } else {
       writerStream =
           StreamingSink.writer(
@@ -330,7 +333,8 @@ public class SuffixedFileSystemTableSink extends PromotedAbstractFileSystemTable
               bucketsBuilder,
               parallelism,
               partitionKeys,
-              tableOptions);
+              tableOptions,
+              parallelismConfigured);
     }
 
     return StreamingSink.sink(
@@ -355,7 +359,7 @@ public class SuffixedFileSystemTableSink extends PromotedAbstractFileSystemTable
 
     if (bulkReaderFormat != null) {
       final BulkFormat<RowData, FileSourceSplit> format =
-          new FileInfoExtractorBulkFormat(
+          new PromotedFileInfoExtractorBulkFormat(
               bulkReaderFormat.createRuntimeDecoder(createSourceContext(context), physicalDataType),
               producedDataType,
               context.createTypeInformation(producedDataType),
@@ -368,7 +372,7 @@ public class SuffixedFileSystemTableSink extends PromotedAbstractFileSystemTable
           deserializationFormat.createRuntimeDecoder(
               createSourceContext(context), physicalDataType);
       final BulkFormat<RowData, FileSourceSplit> format =
-          new FileInfoExtractorBulkFormat(
+          new PromotedFileInfoExtractorBulkFormat(
               new DeserializationSchemaAdapter(decoder),
               producedDataType,
               context.createTypeInformation(producedDataType),

@@ -1,0 +1,13 @@
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: flink-session-role-binding
+  namespace: metrics
+subjects:
+  - kind: ServiceAccount
+    name: flink
+    namespace: metrics
+roleRef:
+  kind: Role
+  name: flink-operator
+  apiGroup: rbac.authorization.k8s.io

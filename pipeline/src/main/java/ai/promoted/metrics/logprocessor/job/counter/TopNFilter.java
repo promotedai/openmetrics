@@ -1,6 +1,6 @@
 package ai.promoted.metrics.logprocessor.job.counter;
 
-import ai.promoted.metrics.logprocessor.common.functions.SerializableFunction;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableFunction;
 import java.time.Duration;
 import org.apache.flink.api.common.state.BroadcastState;
 import org.apache.flink.api.common.state.ListState;

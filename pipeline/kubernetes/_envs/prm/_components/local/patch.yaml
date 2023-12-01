@@ -1,0 +1,11 @@
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: flink-job
+spec:
+  flinkConfiguration:
+    s3a.endpoint: http://minio:9000
+    s3a.path.style.access: "true"
+    s3a.access-key: YOURACCESSKEY
+    s3a.secret-key: YOURSECRETKEY
+    s3a.aws.credentials.provider: org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider

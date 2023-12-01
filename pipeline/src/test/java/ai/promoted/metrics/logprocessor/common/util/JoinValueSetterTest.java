@@ -11,10 +11,9 @@ import ai.promoted.metrics.common.RecordType;
 import ai.promoted.metrics.error.LogFunctionName;
 import ai.promoted.metrics.error.MismatchError;
 import ai.promoted.proto.event.JoinedIdentifiers;
-import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import org.apache.flink.util.OutputTag;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -23,16 +22,16 @@ public class JoinValueSetterTest {
 
   private JoinValueSetterOptions options;
   private JoinValueSetter setter;
-  private BiConsumer<OutputTag<MismatchError>, MismatchError> errorLogger;
+  private Consumer<MismatchError> errorLogger;
 
   @BeforeEach
   public void setUp() {
-    errorLogger = Mockito.mock(BiConsumer.class);
+    errorLogger = Mockito.mock(Consumer.class);
     options =
         JoinValueSetterOptions.builder()
             .setRecordType(RecordType.IMPRESSION)
             .setRecordId("imp1")
-            .setLogTimestamp(123L)
+            .setEventApiTimestamp(123L)
             .setLhsIds(
                 ai.promoted.metrics.common.JoinedIdentifiers.newBuilder()
                     .setPlatformId(1L)
@@ -66,8 +65,9 @@ public class JoinValueSetterTest {
 
   @Test
   public void toAvro_catchNewFields() {
+    // TODO - remove logUserId from this?
     assertEquals(
-        9,
+        10,
         JoinedIdentifiers.getDescriptor().getFields().stream()
             .map(field -> field.getNumber())
             .collect(Collectors.toSet())
@@ -81,7 +81,7 @@ public class JoinValueSetterTest {
     Function<Long, Void> setterFn = Mockito.mock(Function.class);
     setter.setValue(Field.PLATFORM_ID, setterFn, 0L, 1L);
     verify(setterFn).apply(1L);
-    verify(errorLogger, never()).accept(any(), any());
+    verify(errorLogger, never()).accept(any());
   }
 
   @Test
@@ -89,7 +89,7 @@ public class JoinValueSetterTest {
     Function<Long, Void> setterFn = Mockito.mock(Function.class);
     setter.setValue(Field.PLATFORM_ID, setterFn, 1L, 1L);
     verify(setterFn, never()).apply(any());
-    verify(errorLogger, never()).accept(any(), any());
+    verify(errorLogger, never()).accept(any());
   }
 
   @Test
@@ -99,7 +99,6 @@ public class JoinValueSetterTest {
     verify(setterFn, never()).apply(any());
     verify(errorLogger)
         .accept(
-            any(),
             eq(
                 MismatchError.newBuilder()
                     .setRecordType(RecordType.IMPRESSION)
@@ -114,7 +113,7 @@ public class JoinValueSetterTest {
                     .setRhsRecordId("imp1")
                     .setLhsLong(1L)
                     .setRhsLong(2L)
-                    .setLogTimestamp(123L)
+                    .setEventApiTimestamp(123L)
                     .setLogFunctionName(LogFunctionName.FLAT_UTIL_SET_FLAT_IMPRESSION)
                     .build()));
   }
@@ -124,7 +123,7 @@ public class JoinValueSetterTest {
     Function<Long, Void> setterFn = Mockito.mock(Function.class);
     setter.setValue(Field.PLATFORM_ID, setterFn, 1L, 2L, false);
     verify(setterFn, never()).apply(any());
-    verify(errorLogger, never()).accept(any(), any());
+    verify(errorLogger, never()).accept(any());
   }
 
   // Strings.
@@ -134,7 +133,7 @@ public class JoinValueSetterTest {
     Function<String, Void> setterFn = Mockito.mock(Function.class);
     setter.setValue(Field.VIEW_ID, setterFn, "", "view1");
     verify(setterFn).apply("view1");
-    verify(errorLogger, never()).accept(any(), any());
+    verify(errorLogger, never()).accept(any());
   }
 
   @Test
@@ -142,7 +141,7 @@ public class JoinValueSetterTest {
     Function<String, Void> setterFn = Mockito.mock(Function.class);
     setter.setValue(Field.VIEW_ID, setterFn, "view1", "view1");
     verify(setterFn, never()).apply(any());
-    verify(errorLogger, never()).accept(any(), any());
+    verify(errorLogger, never()).accept(any());
   }
 
   @Test
@@ -152,7 +151,6 @@ public class JoinValueSetterTest {
     verify(setterFn, never()).apply(any());
     verify(errorLogger)
         .accept(
-            any(),
             eq(
                 MismatchError.newBuilder()
                     .setRecordType(RecordType.IMPRESSION)
@@ -167,7 +165,7 @@ public class JoinValueSetterTest {
                     .setRhsRecordId("imp1")
                     .setLhsString("view1")
                     .setRhsString("view2")
-                    .setLogTimestamp(123L)
+                    .setEventApiTimestamp(123L)
                     .setLogFunctionName(LogFunctionName.FLAT_UTIL_SET_FLAT_IMPRESSION)
                     .build()));
   }
@@ -177,6 +175,6 @@ public class JoinValueSetterTest {
     Function<String, Void> setterFn = Mockito.mock(Function.class);
     setter.setValue(Field.VIEW_ID, setterFn, "view1", "view2", false);
     verify(setterFn, never()).apply(any());
-    verify(errorLogger, never()).accept(any(), any());
+    verify(errorLogger, never()).accept(any());
   }
 }

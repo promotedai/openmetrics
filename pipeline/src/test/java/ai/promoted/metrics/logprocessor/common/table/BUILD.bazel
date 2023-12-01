@@ -6,14 +6,22 @@ load("//:junit5.bzl", "java_junit5_test")
 # Use java_test after bazel officially support junit5
 java_junit5_test(
     name = "unit_tests",
-    use_testrunner = False,
-    main_class = "com.flexport.bazeljunit5.BazelJUnit5ConsoleLauncher",
-    srcs = glob(["*.java"], exclude=["*MiniclusterTest.java"]),
-    test_package = "ai.promoted.metrics.logprocessor.job.contentmetrics",
     timeout = "short",
-    tags = ["exclusive"],
+    srcs = glob(
+        ["*.java"],
+        exclude = ["*MiniclusterTest.java"],
+    ),
+    jvm_flags = [
+        "-Dlog4j.configurationFile=resources/log4j2-test.xml",
+    ],
+    main_class = "com.flexport.bazeljunit5.BazelJUnit5ConsoleLauncher",
+    resources = ["//pipeline/src/resources:log4j2-test.xml"],
+    test_package = "ai.promoted.metrics.logprocessor.common.table",
+    use_testrunner = False,
     deps = [
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions/inferred",
         "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions/sink",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/job",
         "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/job/testing",
         "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/table",
         "//pipeline/src/main/java/com/flexport/bazeljunit5",
@@ -21,12 +29,47 @@ java_junit5_test(
         "@com_github_promotedai_schema_internal_git//proto/delivery:delivery_java_proto",
         "@com_github_promotedai_schema_internal_git//proto/event:event_java_proto",
         "@maven//:com_google_guava_guava",
+        "@maven//:com_google_truth_truth",
         "@maven//:org_apache_flink_flink_core",
+        "@maven//:org_apache_flink_flink_streaming_java",
         "@maven//:org_apache_flink_flink_table_api_java_uber",
         "@maven//:org_mockito_mockito_core",
+        "@maven_test//:org_apache_flink_flink_table_planner_2_12",
     ],
+)
+
+java_junit5_test(
+    name = "minicluster_tests",
+    # Temp change.
+    timeout = "short",
+    srcs = glob(["*MiniclusterTest.java"]),
     jvm_flags = [
         "-Dlog4j.configurationFile=resources/log4j2-test.xml",
     ],
-    resources = ["//pipeline/src/resources:log4j2-test.xml"],
+    main_class = "com.flexport.bazeljunit5.BazelJUnit5ConsoleLauncher",
+    resources = [
+        "//pipeline/src/resources:log4j2-test.xml",
+    ],
+    tags = ["exclusive"],
+    test_package = "ai.promoted.metrics.logprocessor.common.table",
+    use_testrunner = False,
+    deps = [
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions/inferred",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions/sink",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/job",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/job/testing",
+        "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/table",
+        "//pipeline/src/main/java/com/flexport/bazeljunit5",
+        "@com_github_promotedai_schema_internal_git//proto/common:common_java_proto",
+        "@com_github_promotedai_schema_internal_git//proto/delivery:delivery_java_proto",
+        "@com_github_promotedai_schema_internal_git//proto/event:event_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_truth_truth",
+        "@maven//:com_twitter_chill_protobuf",
+        "@maven//:org_apache_flink_flink_core",
+        "@maven//:org_apache_flink_flink_streaming_java",
+        "@maven//:org_apache_flink_flink_table_api_java_uber",
+        "@maven//:org_mockito_mockito_core",
+        "@maven_test//:org_apache_flink_flink_table_planner_2_12",
+    ],
 )

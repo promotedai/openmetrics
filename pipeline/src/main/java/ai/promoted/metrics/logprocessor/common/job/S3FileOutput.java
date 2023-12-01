@@ -1,19 +1,19 @@
 package ai.promoted.metrics.logprocessor.common.job;
 
-import ai.promoted.metrics.logprocessor.common.avro.FixedProtobufData;
-import ai.promoted.metrics.logprocessor.common.avro.FixedProtobufDatumWriter;
+import ai.promoted.metrics.logprocessor.common.avro.PromotedProtobufData;
+import ai.promoted.metrics.logprocessor.common.avro.PromotedProtobufDatumWriter;
 import ai.promoted.metrics.logprocessor.common.functions.DateHourBucketAssigner;
-import ai.promoted.metrics.logprocessor.common.functions.SerializableFunction;
-import ai.promoted.metrics.logprocessor.common.functions.SerializableToLongFunction;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableFunction;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableToLongFunction;
 import ai.promoted.metrics.logprocessor.common.s3.S3Path;
 import ai.promoted.proto.common.Timing;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.protobuf.GeneratedMessageV3;
 import com.google.protobuf.Message;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import org.apache.avro.Schema;
@@ -29,7 +29,7 @@ import org.apache.flink.formats.avro.AvroBuilder;
 import org.apache.flink.formats.avro.AvroWriterFactory;
 import org.apache.flink.formats.parquet.ParquetBuilder;
 import org.apache.flink.formats.parquet.ParquetWriterFactory;
-import org.apache.flink.formats.parquet.avro.ParquetAvroWriters;
+import org.apache.flink.formats.parquet.avro.AvroParquetWriters;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.functions.sink.filesystem.rollingpolicies.OnCheckpointRollingPolicy;
 import org.apache.hadoop.conf.Configuration;
@@ -82,6 +82,7 @@ public class S3FileOutput implements FlinkSegment {
       description =
           "Flag to disable specific S3 sinks.  This is a flag in case writing causes performance issues.  Defaults to empty.")
   public Set<String> disableS3Sink = new HashSet<>();
+
   // The S3 sink does not support getTransformation, so we need to track the uids separately.
   @VisibleForTesting public ArrayList<String> sinkTransformationUids = new ArrayList<>();
 
@@ -117,8 +118,8 @@ public class S3FileOutput implements FlinkSegment {
     ParquetBuilder<T> builder =
         (out) ->
             AvroParquetWriter.<T>builder(out)
-                .withSchema(FixedProtobufData.get().getSchema(clazz))
-                .withDataModel(FixedProtobufData.get())
+                .withSchema(PromotedProtobufData.get().getSchema(clazz))
+                .withDataModel(PromotedProtobufData.get())
                 .build();
     return new ParquetWriterFactory<T>(builder);
   }
@@ -130,8 +131,8 @@ public class S3FileOutput implements FlinkSegment {
             out -> {
               // Replace recursive schema classes (like Struct) with non-recursive alternatives.
               // Required for Athena use, which does not support recursive schemas.
-              Schema schema = FixedProtobufData.get().getSchema(protoClass);
-              FixedProtobufDatumWriter<T> pbWriter = new FixedProtobufDatumWriter<>(schema);
+              Schema schema = PromotedProtobufData.get().getSchema(protoClass);
+              PromotedProtobufDatumWriter<T> pbWriter = new PromotedProtobufDatumWriter<>(schema);
               DataFileWriter<T> dataFileWriter = new DataFileWriter<>(pbWriter);
               dataFileWriter.setCodec(CodecFactory.snappyCodec());
               dataFileWriter.create(schema, out);
@@ -160,29 +161,47 @@ public class S3FileOutput implements FlinkSegment {
       throw new IllegalArgumentException(
           "At least one output is needed: hint --logAvro OR --logParquet");
     }
-    LOGGER.info("outputS3Directory={}", s3.getDir().build().toString());
+    LOGGER.info("outputS3Directory={}", s3.getOutputDir().build().toString());
   }
 
   @Override
-  public List<Class<? extends GeneratedMessageV3>> getProtoClasses() {
-    return ImmutableList.of();
+  public Set<Class<? extends GeneratedMessageV3>> getProtoClasses() {
+    return ImmutableSet.of();
   }
 
   // This function is unit tested.
   public <T extends GeneratedMessageV3> ImmutableList<Transformation> sink(
       DataStream<T> input, SerializableFunction<T, Timing> getTiming, S3Path.Builder pathBuilder) {
-    // TODO - should this be the kafka timestamp?
     SerializableToLongFunction<T> getTimestamp =
         (row) -> getTiming.apply(row).getEventApiTimestamp();
     return sink(getTimestamp, input, pathBuilder);
   }
 
   // This function is unit tested.
-  // Reordered args due to type erasure.
+  public <T extends GeneratedMessageV3> ImmutableList<Transformation> sink(
+      DataStream<T> input,
+      Class<T> clazz,
+      SerializableFunction<T, Timing> getTiming,
+      S3Path.Builder pathBuilder) {
+    SerializableToLongFunction<T> getTimestamp =
+        (row) -> getTiming.apply(row).getEventApiTimestamp();
+    return sink(getTimestamp, input, clazz, pathBuilder);
+  }
+
   public <T extends GeneratedMessageV3> ImmutableList<Transformation> sink(
       SerializableToLongFunction<T> getTimestamp, DataStream<T> input, S3Path.Builder pathBuilder) {
-    ImmutableList.Builder<Transformation> xforms = ImmutableList.builder();
     Class<T> clazz = input.getType().getTypeClass();
+    return sink(getTimestamp, input, clazz, pathBuilder);
+  }
+
+  // This function is unit tested.
+  // Reordered args due to type erasure.
+  public <T extends GeneratedMessageV3> ImmutableList<Transformation> sink(
+      SerializableToLongFunction<T> getTimestamp,
+      DataStream<T> input,
+      Class<T> clazz,
+      S3Path.Builder pathBuilder) {
+    ImmutableList.Builder<Transformation> xforms = ImmutableList.builder();
     if (logAvro) {
       // avro
       sink(getAvroWriterFactory(clazz), getTimestamp, input, pathBuilder).ifPresent(xforms::add);
@@ -216,7 +235,7 @@ public class S3FileOutput implements FlinkSegment {
       String name, DataStream<GenericRecord> logStream, Schema logSchema) {
     if (!sideOutputDebugLogging) return Optional.empty();
 
-    S3Path outputDirectory = s3.getDir("etl-side", "debug", name).build();
+    S3Path outputDirectory = s3.getOutputDir("etl-side", "debug", name).build();
     String uid = String.format("sink-s3-%s-debug-logging", name);
     if (disableS3Sink.contains(uid)) {
       LOGGER.info("Disabling output {}", uid);
@@ -245,11 +264,15 @@ public class S3FileOutput implements FlinkSegment {
       return Optional.empty();
     }
     LOGGER.info("outputAvroSpecificRecordAsParquet {} outputDirectory={}", uid, path);
-    BulkWriter.Factory<T> factory = ParquetAvroWriters.forSpecificRecord(specificRecordClass);
+    BulkWriter.Factory<T> factory = AvroParquetWriters.forSpecificRecord(specificRecordClass);
     job.add(logStream.sinkTo(forBulkFormat(path, factory, getTimestamp)), uid);
 
     sinkTransformationUids.add(uid);
     return Optional.of(logStream.getTransformation());
+  }
+
+  public S3Segment getS3() {
+    return s3;
   }
 
   private static class MyParquetWriterBuilder<T extends Message>

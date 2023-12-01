@@ -4,6 +4,7 @@ import static ai.promoted.metrics.logprocessor.common.util.StringUtil.firstNotEm
 
 import ai.promoted.metrics.logprocessor.common.constant.Constants;
 import ai.promoted.metrics.logprocessor.common.functions.filter.LogRequestFilter;
+import ai.promoted.proto.common.Timing;
 import ai.promoted.proto.delivery.DeliveryLog;
 import ai.promoted.proto.delivery.Insertion;
 import ai.promoted.proto.delivery.Request;
@@ -20,22 +21,25 @@ import ai.promoted.proto.event.SessionProfile;
 import ai.promoted.proto.event.User;
 import ai.promoted.proto.event.View;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.protobuf.GeneratedMessageV3;
 import java.time.Duration;
-import java.util.List;
-import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
+import java.util.Set;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import picocli.CommandLine.Option;
 
 // If we need to make this class serializable, we need to figure out how to handle
 // filteredLogRequestStream.
 public class MetricsApiKafkaSource implements FlinkSegment {
+  private static final Logger LOGGER = LogManager.getLogger(MetricsApiKafkaSource.class);
 
   private final BaseFlinkJob job;
   private final KafkaSegment kafkaSegment;
+  private final KafkaSourceSegment kafkaSourceSegment;
 
   @Option(
       names = {"--logRequestTopicOverride"},
@@ -48,6 +52,7 @@ public class MetricsApiKafkaSource implements FlinkSegment {
       defaultValue = "PT1S",
       description = "The maxOutOfOrderness " + "for the LogRequest kafka. Default=PT1S")
   public Duration maxLogRequestOutOfOrderness = Duration.parse("PT1S");
+
   // Is a separate flag from `--kafkaDataset` because the input kafka topic uses a deprecated
   // dataset.
   @Option(
@@ -56,9 +61,38 @@ public class MetricsApiKafkaSource implements FlinkSegment {
       description = "The middle part of the Kafka topic name. Default=event")
   public String metricsApiKafkaDataset = Constants.DEPRECATED_DEFAULT_KAFKA_DATASET;
 
-  public MetricsApiKafkaSource(BaseFlinkJob job, KafkaSegment kafkaSegment) {
+  public MetricsApiKafkaSource(
+      BaseFlinkJob job, KafkaSegment kafkaSegment, KafkaSourceSegment kafkaSourceSegment) {
     this.job = job;
     this.kafkaSegment = kafkaSegment;
+    this.kafkaSourceSegment = kafkaSourceSegment;
+  }
+
+  /**
+   * A utility to flexibility get a valid Timing from a LogRequest. Falls back in case there's a bug
+   * and LogRequest's top-level Timing field is not set.
+   */
+  private static Timing getTiming(LogRequest logRequest) {
+    if (logRequest.hasTiming()) {
+      return logRequest.getTiming();
+    } else if (logRequest.getDeliveryLogCount() > 0) {
+      return logRequest.getDeliveryLog(0).getRequest().getTiming();
+    } else if (logRequest.getImpressionCount() > 0) {
+      return logRequest.getImpression(0).getTiming();
+    } else if (logRequest.getActionCount() > 0) {
+      return logRequest.getAction(0).getTiming();
+    } else if (logRequest.getCohortMembershipCount() > 0) {
+      return logRequest.getCohortMembership(0).getTiming();
+    } else if (logRequest.getViewCount() > 0) {
+      return logRequest.getView(0).getTiming();
+    } else if (logRequest.getAutoViewCount() > 0) {
+      return logRequest.getAutoView(0).getTiming();
+    } else if (logRequest.getDiagnosticsCount() > 0) {
+      return logRequest.getDiagnostics(0).getTiming();
+    } else {
+      LOGGER.warn("Encountered missing Timing on LogRequest");
+      return Timing.getDefaultInstance();
+    }
   }
 
   @Override
@@ -68,21 +102,19 @@ public class MetricsApiKafkaSource implements FlinkSegment {
 
   // This function is not unit tested.
   public SingleOutputStreamOperator<LogRequest> getLogRequestSource(
-      StreamExecutionEnvironment env, String kafkaGroupId, OffsetsInitializer boundedOffsets) {
-    return kafkaSegment.addProtobufSource(
+      StreamExecutionEnvironment env, String kafkaGroupId) {
+    return kafkaSourceSegment.addProtobufSource(
         env,
         getInputLogRequestTopic(),
         kafkaGroupId,
         LogRequest.class,
         LogRequest::parseFrom,
         maxLogRequestOutOfOrderness,
-        null,
-        boundedOffsets);
+        logRequest -> getTiming(logRequest).getEventApiTimestamp());
   }
 
-  public SplitSources splitSources(
-      StreamExecutionEnvironment env, String kafkaGroupId, OffsetsInitializer boundedOffsets) {
-    return splitSources(getLogRequestSource(env, kafkaGroupId, boundedOffsets));
+  public SplitSources splitSources(StreamExecutionEnvironment env, String kafkaGroupId) {
+    return splitSources(getLogRequestSource(env, kafkaGroupId));
   }
 
   public SplitSources splitSources(SingleOutputStreamOperator<LogRequest> input) {
@@ -90,8 +122,8 @@ public class MetricsApiKafkaSource implements FlinkSegment {
   }
 
   @Override
-  public List<Class<? extends GeneratedMessageV3>> getProtoClasses() {
-    return ImmutableList.of(
+  public Set<Class<? extends GeneratedMessageV3>> getProtoClasses() {
+    return ImmutableSet.of(
         LogRequest.class,
         User.class,
         Session.class,

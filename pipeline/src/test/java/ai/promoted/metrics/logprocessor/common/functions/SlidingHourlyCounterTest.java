@@ -9,11 +9,12 @@ import ai.promoted.metrics.logprocessor.common.counter.WindowAggResult;
 import ai.promoted.metrics.logprocessor.common.util.FlatUtil;
 import ai.promoted.proto.event.Action;
 import ai.promoted.proto.event.ActionType;
+import ai.promoted.proto.event.AttributedAction;
 import ai.promoted.proto.event.CartContent;
-import ai.promoted.proto.event.JoinedEvent;
 import com.google.common.collect.FluentIterable;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import org.apache.flink.api.common.typeinfo.Types;
 import org.apache.flink.contrib.streaming.state.EmbeddedRocksDBStateBackend;
 import org.apache.flink.streaming.api.operators.KeyedProcessOperator;
@@ -22,15 +23,27 @@ import org.apache.flink.streaming.util.KeyedOneInputStreamOperatorTestHarness;
 import org.junit.jupiter.api.Test;
 
 public class SlidingHourlyCounterTest {
-  private static SlidingHourlyCounter<Void, JoinedEvent> createSlidingHourlyCounter(
-      Duration emitWindow) {
-    return new SlidingHourlyCounter<>(
-        Types.VOID, emitWindow, FlatUtil::getEventApiTimestamp, CounterUtil::getCount, false);
+  private static SlidingHourlyCounter<String, AttributedAction> createSlidingHourlyCounter(
+      Duration windowSlide) {
+    return createSlidingHourlyCounter(windowSlide, false);
   }
 
-  private static JoinedEvent joinedEvent(Action.Builder action) {
-    return FlatUtil.setFlatAction(JoinedEvent.newBuilder(), action.build(), (tag, error) -> {})
-        .build();
+  private static SlidingHourlyCounter<String, AttributedAction> createSlidingHourlyCounter(
+      Duration windowSlide, boolean sideOutputDebugLogging) {
+    return new SlidingHourlyCounter<>(
+        Types.STRING,
+        windowSlide,
+        action -> action.getAction().getTiming().getEventApiTimestamp(),
+        CounterUtil::getCount,
+        sideOutputDebugLogging);
+  }
+
+  private static AttributedAction newAttributedAction(Action action) {
+    return AttributedAction.newBuilder().setAction(action).build();
+  }
+
+  private static AttributedAction newAttributedAction(Action.Builder action) {
+    return newAttributedAction(action.build());
   }
 
   private static Action.Builder createAction(ActionType actionType, long eventTime) {
@@ -46,21 +59,18 @@ public class SlidingHourlyCounterTest {
 
   @Test
   public void testCounting() throws Exception {
-    SlidingHourlyCounter<String, JoinedEvent> function =
-        new SlidingHourlyCounter<>(
-            Types.STRING,
-            Duration.ofMinutes(15),
-            FlatUtil::getEventApiTimestamp,
-            CounterUtil::getCount,
-            true);
-    KeyedOneInputStreamOperatorTestHarness<String, JoinedEvent, WindowAggResult<String>> harness =
-        new KeyedOneInputStreamOperatorTestHarness<>(
-            new KeyedProcessOperator<>(function), FlatUtil::getActionString, Types.STRING);
+    SlidingHourlyCounter<String, AttributedAction> function =
+        createSlidingHourlyCounter(Duration.ofMinutes(15), true);
+    KeyedOneInputStreamOperatorTestHarness<String, AttributedAction, WindowAggResult<String>>
+        harness =
+            new KeyedOneInputStreamOperatorTestHarness<>(
+                new KeyedProcessOperator<>(function), FlatUtil::getActionString, Types.STRING);
 
     harness.setStateBackend(new EmbeddedRocksDBStateBackend());
     harness.open();
 
-    harness.processElement(joinedEvent(createAction(ActionType.UNKNOWN_ACTION_TYPE, 10)), 10);
+    harness.processElement(
+        newAttributedAction(createAction(ActionType.UNKNOWN_ACTION_TYPE, 10)), 10);
 
     harness.processWatermark(20);
     assertEquals(2, harness.numEventTimeTimers());
@@ -68,7 +78,8 @@ public class SlidingHourlyCounterTest {
     assertIterableEquals(expected, harness.extractOutputStreamRecords());
 
     harness.processElement(
-        joinedEvent(createAction(ActionType.NAVIGATE, 21)), Duration.ofSeconds(11).toMillis());
+        newAttributedAction(createAction(ActionType.NAVIGATE, 21)),
+        Duration.ofSeconds(11).toMillis());
 
     harness.processWatermark(Duration.ofMinutes(14).toMillis());
     assertEquals(4, harness.numEventTimeTimers());
@@ -76,13 +87,13 @@ public class SlidingHourlyCounterTest {
 
     harness.processElement(
         // Delayed a window.
-        joinedEvent(createAction(ActionType.NAVIGATE, function.emitWindow - 10)),
-        function.emitWindow);
+        newAttributedAction(createAction(ActionType.NAVIGATE, function.windowSlide - 10)),
+        function.windowSlide);
     harness.processElement(
-        joinedEvent(createAction("15m border", Duration.ofMinutes(15).toMillis())),
+        newAttributedAction(createAction("15m border", Duration.ofMinutes(15).toMillis())),
         Duration.ofMinutes(15).toMillis());
 
-    harness.processWatermark(function.emitWindow + 20);
+    harness.processWatermark(function.windowSlide + 20);
     assertEquals(4, harness.numEventTimeTimers());
     expected =
         expected.append(
@@ -112,7 +123,7 @@ public class SlidingHourlyCounterTest {
     assertIterableEquals(expected, harness.extractOutputStreamRecords());
 
     harness.processElement(
-        joinedEvent(createAction(ActionType.NAVIGATE, Duration.ofMinutes(33).toMillis())),
+        newAttributedAction(createAction(ActionType.NAVIGATE, Duration.ofMinutes(33).toMillis())),
         Duration.ofMinutes(33).toMillis());
 
     harness.processWatermark(Duration.ofMinutes(37).toMillis());
@@ -137,7 +148,7 @@ public class SlidingHourlyCounterTest {
     assertIterableEquals(expected, harness.extractOutputStreamRecords());
 
     harness.processElement(
-        joinedEvent(createAction(ActionType.LIKE, Duration.ofMinutes(92).toMillis())),
+        newAttributedAction(createAction(ActionType.LIKE, Duration.ofMinutes(92).toMillis())),
         Duration.ofMinutes(92).toMillis());
 
     harness.processWatermark(Duration.ofMinutes(102).toMillis());
@@ -183,26 +194,22 @@ public class SlidingHourlyCounterTest {
   @SuppressWarnings("CheckReturnValue")
   @Test
   public void testShoppingCartCount() throws Exception {
-    SlidingHourlyCounter<String, JoinedEvent> function =
-        new SlidingHourlyCounter<>(
-            Types.STRING,
-            Duration.ofMinutes(15),
-            FlatUtil::getEventApiTimestamp,
-            CounterUtil::getCount,
-            false);
-    KeyedOneInputStreamOperatorTestHarness<String, JoinedEvent, WindowAggResult<String>> harness =
-        new KeyedOneInputStreamOperatorTestHarness<>(
-            new KeyedProcessOperator<>(function), FlatUtil::getActionString, Types.STRING);
+    SlidingHourlyCounter<String, AttributedAction> function =
+        createSlidingHourlyCounter(Duration.ofMinutes(15), false);
+    KeyedOneInputStreamOperatorTestHarness<String, AttributedAction, WindowAggResult<String>>
+        harness =
+            new KeyedOneInputStreamOperatorTestHarness<>(
+                new KeyedProcessOperator<>(function), FlatUtil::getActionString, Types.STRING);
     harness.setStateBackend(new EmbeddedRocksDBStateBackend());
     harness.open();
 
     harness.processElement(
-        joinedEvent(
+        newAttributedAction(
             createAction(ActionType.PURCHASE, 10)
                 .setSingleCartContent(CartContent.newBuilder().setQuantity(5))),
         10);
 
-    harness.processWatermark(function.emitWindow + 20);
+    harness.processWatermark(function.windowSlide + 20);
     assertEquals(1, harness.numEventTimeTimers());
     FluentIterable<StreamRecord<WindowAggResult<?>>> expected = FluentIterable.of();
     expected =
@@ -215,39 +222,36 @@ public class SlidingHourlyCounterTest {
 
   @Test
   public void testToWindowKey() {
-    SlidingHourlyCounter<String, JoinedEvent> function =
-        new SlidingHourlyCounter<>(
-            Types.STRING,
-            Duration.ofMinutes(15),
-            FlatUtil::getEventApiTimestamp,
-            CounterUtil::getCount,
-            false);
-    // 1979-08-29 07:15:30.000
-    assertEquals(197908290730L, function.toWindowKey(SlidingCounter.toDateTime(304758930000L)));
-    // 2001-09-11 12:46:00.000
-    assertEquals(200109111300L, function.toWindowKey(SlidingCounter.toDateTime(1000212360000L)));
-    // 2020-02-29 23:14:59.999
-    assertEquals(202002292315L, function.toWindowKey(SlidingCounter.toDateTime(1583018099999L)));
-    // 2020-02-29 23:59:59.999
-    assertEquals(202003010000L, function.toWindowKey(SlidingCounter.toDateTime(1583020799999L)));
+    SlidingHourlyCounter<String, AttributedAction> function =
+        createSlidingHourlyCounter(Duration.ofMinutes(15), false);
+    // 304758930000L = GMT: Wednesday, August 29, 1979 7:15:30 AM
+    // 304759800000L = GMT: Wednesday, August 29, 1979 7:30:00 AM
+    assertEquals(304759800000L, function.toWindowKey(SlidingCounter.toDateTime(304758930000L)));
+    // 1000212360000L = GMT: Tuesday, September 11, 2001 12:46:00 PM
+    // 1000213200000L = GMT: Tuesday, September 11, 2001 1:00:00 PM
+    assertEquals(1000213200000L, function.toWindowKey(SlidingCounter.toDateTime(1000212360000L)));
+    // 1583018099999L = GMT: Saturday, February 29, 2020 11:14:59.999 PM
+    // 1583018100000L = GMT: Saturday, February 29, 2020 11:15:00 PM
+    assertEquals(1583018100000L, function.toWindowKey(SlidingCounter.toDateTime(1583018099999L)));
+    // 1583020799999L = GMT: Saturday, February 29, 2020 11:59:59.999 PM
+    // 1583020800000L = GMT: Sunday, March 1, 2020 12:00:00 AM
+    assertEquals(1583020800000L, function.toWindowKey(SlidingCounter.toDateTime(1583020799999L)));
   }
 
   @Test
   public void testWindowDateTime() {
-    SlidingHourlyCounter<String, JoinedEvent> function =
-        new SlidingHourlyCounter<>(
-            Types.STRING,
-            Duration.ofMinutes(15),
-            FlatUtil::getEventApiTimestamp,
-            CounterUtil::getCount,
-            false);
-    assertEquals(LocalDateTime.of(1979, 8, 29, 7, 15), function.windowDateTime(197908290715L));
-    assertEquals(LocalDateTime.of(2001, 9, 11, 12, 45), function.windowDateTime(200109111245L));
-    assertEquals(LocalDateTime.of(2020, 2, 29, 23, 0), function.windowDateTime(202002292300L));
+    SlidingHourlyCounter<String, AttributedAction> function =
+        createSlidingHourlyCounter(Duration.ofMinutes(15), false);
+    assertEquals(
+        LocalDateTime.of(1979, 8, 29, 7, 15, 30).toInstant(ZoneOffset.UTC),
+        function.windowDateTime(304758930000L));
+    assertEquals(
+        LocalDateTime.of(2001, 9, 11, 12, 46).toInstant(ZoneOffset.UTC),
+        function.windowDateTime(1000212360000L));
   }
 
   @Test
-  public void testEmitWindow() {
+  public void testWindowSlide() {
     // Factors are fine.
     assertThrows(
         IllegalArgumentException.class, () -> createSlidingHourlyCounter(Duration.ofMinutes(0)));

@@ -21,23 +21,22 @@ public class ValidateImpressionTest extends BaseValidateTest<Impression> {
   @BeforeEach
   public void setUp() {
     super.setUp();
-    validate = new ValidateImpression();
+    validate = new ValidateImpression(true);
   }
 
   @Test
   public void valid() throws Exception {
     Impression impression =
         Impression.newBuilder()
-            .setUserInfo(UserInfo.newBuilder().setLogUserId(LOG_USER_ID))
+            .setUserInfo(UserInfo.newBuilder().setAnonUserId(ANON_USER_ID))
             .setContentId(CONTENT_ID)
             .build();
     validate.processElement(impression, mockContext, mockOut);
-    verify(mockContext, never()).output(eq(ValidateView.INVALID_TAG), any(ValidationError.class));
-    verify(mockOut).collect(impression);
+    verifyValid(impression);
   }
 
   @Test
-  public void missingLogUserId() throws Exception {
+  public void missingAnonUserId() throws Exception {
     Impression impression =
         Impression.newBuilder()
             .setPlatformId(PLATFORM_ID)
@@ -53,11 +52,11 @@ public class ValidateImpressionTest extends BaseValidateTest<Impression> {
     // Future validation tests do not need assert the full message.  It can call createError.
     verify(mockContext)
         .output(
-            ValidateUser.INVALID_TAG,
+            ValidateImpression.VALIDATION_ERROR_TAG,
             ValidationError.newBuilder()
                 .setRecordType(RecordType.IMPRESSION)
                 .setErrorType(ErrorType.MISSING_FIELD)
-                .setField(Field.LOG_USER_ID)
+                .setField(Field.ANON_USER_ID)
                 .setPlatformId(PLATFORM_ID)
                 .setViewId(VIEW_ID)
                 .setRequestId(REQUEST_ID)
@@ -65,7 +64,25 @@ public class ValidateImpressionTest extends BaseValidateTest<Impression> {
                 .setResponseInsertionId(INSERTION_ID)
                 .setTiming(getAvroTiming())
                 .build());
+    verify(mockContext).output(validate.getInvalidRecordTag(), impression);
     verify(mockOut, never()).collect(impression);
+  }
+
+  @Test
+  public void missingAnonUserId_optional() throws Exception {
+    validate = new ValidateImpression(false);
+    Impression impression =
+        Impression.newBuilder()
+            .setPlatformId(PLATFORM_ID)
+            .setTiming(getProtoTiming())
+            .setViewId(VIEW_ID)
+            .setRequestId(REQUEST_ID)
+            .setViewId(VIEW_ID)
+            .setImpressionId(IMPRESSION_ID)
+            .setInsertionId(INSERTION_ID)
+            .build();
+    validate.processElement(impression, mockContext, mockOut);
+    verifyValid(impression);
   }
 
   @Test
@@ -73,7 +90,7 @@ public class ValidateImpressionTest extends BaseValidateTest<Impression> {
     Impression impression =
         Impression.newBuilder()
             .setPlatformId(PLATFORM_ID)
-            .setUserInfo(UserInfo.newBuilder().setLogUserId(LOG_USER_ID))
+            .setUserInfo(UserInfo.newBuilder().setAnonUserId(ANON_USER_ID))
             .setTiming(getProtoTiming())
             .setViewId(VIEW_ID)
             .setRequestId(REQUEST_ID)
@@ -85,18 +102,26 @@ public class ValidateImpressionTest extends BaseValidateTest<Impression> {
     // Future validation tests do not need assert the full message.  It can call createError.
     verify(mockContext)
         .output(
-            ValidateUser.INVALID_TAG,
+            ValidateImpression.VALIDATION_ERROR_TAG,
             ValidationError.newBuilder()
                 .setRecordType(RecordType.IMPRESSION)
                 .setErrorType(ErrorType.MISSING_JOINABLE_ID)
                 .setField(Field.MULTIPLE)
                 .setPlatformId(PLATFORM_ID)
-                .setLogUserId(LOG_USER_ID)
+                .setAnonUserId(ANON_USER_ID)
                 .setViewId(VIEW_ID)
                 .setRequestId(REQUEST_ID)
                 .setImpressionId(IMPRESSION_ID)
                 .setTiming(getAvroTiming())
                 .build());
+    verify(mockContext).output(validate.getInvalidRecordTag(), impression);
     verify(mockOut, never()).collect(impression);
+  }
+
+  private void verifyValid(Impression impression) {
+    verify(mockContext, never())
+        .output(eq(ValidateImpression.VALIDATION_ERROR_TAG), any(ValidationError.class));
+    verify(mockContext, never()).output(eq(validate.getInvalidRecordTag()), any(Impression.class));
+    verify(mockOut).collect(impression);
   }
 }

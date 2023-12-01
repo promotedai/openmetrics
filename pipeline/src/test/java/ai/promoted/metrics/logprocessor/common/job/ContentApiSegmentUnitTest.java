@@ -10,11 +10,13 @@ import org.junit.jupiter.api.Test;
 /** Unit tests (non-minicluster tests). */
 public class ContentApiSegmentUnitTest {
 
+  RegionSegment regionSegment;
   ContentApiSegment segment;
 
   @BeforeEach
   public void setUp() {
-    segment = new ContentApiSegment(null);
+    regionSegment = new RegionSegment();
+    segment = new ContentApiSegment(null, regionSegment);
   }
 
   @Test
@@ -23,14 +25,22 @@ public class ContentApiSegmentUnitTest {
   }
 
   @Test
+  public void validate_enableLookup() {
+    segment.contentApiRootUrl = "http://localhost:5150";
+    assertThrows(IllegalArgumentException.class, () -> segment.validateArgs());
+  }
+
+  @Test
   public void validate_needsFieldKeys() {
     segment.contentApiRootUrl = "http://localhost:5150";
+    segment.enableActionContentLookup = true;
     assertThrows(IllegalArgumentException.class, () -> segment.validateArgs());
   }
 
   @Test
   public void validate_needsApiKey() {
     segment.contentApiRootUrl = "http://localhost:5150";
+    segment.enableActionContentLookup = true;
     segment.contentIdFieldKeys = ImmutableList.of("storeId");
     assertThrows(IllegalArgumentException.class, () -> segment.validateArgs());
   }
@@ -38,6 +48,7 @@ public class ContentApiSegmentUnitTest {
   @Test
   public void validate_allFields_staticApiKey() {
     segment.contentApiRootUrl = "http://localhost:5150";
+    segment.enableActionContentLookup = true;
     segment.contentIdFieldKeys = ImmutableList.of("storeId");
     segment.contentApiKey = "abc";
     segment.validateArgs();
@@ -46,6 +57,7 @@ public class ContentApiSegmentUnitTest {
   @Test
   public void validate_needsRegion() {
     segment.contentApiRootUrl = "http://localhost:5150";
+    segment.enableActionContentLookup = true;
     segment.contentIdFieldKeys = ImmutableList.of("storeId");
     segment.contentApiSecretName = "secret";
     assertThrows(IllegalArgumentException.class, () -> segment.validateArgs());
@@ -55,9 +67,10 @@ public class ContentApiSegmentUnitTest {
   @Test
   public void getApiKey_awsSecret() {
     segment.contentApiRootUrl = "http://localhost:5150";
+    segment.enableActionContentLookup = true;
     segment.contentIdFieldKeys = ImmutableList.of("storeId");
     segment.contentApiSecretName = "secret";
-    segment.region = "us-east-1";
+    regionSegment.region = "us-east-1";
     segment.getAwsSecret = () -> "{\"api-key\": \"abc\"}";
     segment.validateArgs();
     assertEquals("abc", segment.getApiKey());

@@ -1,50 +1,36 @@
 package ai.promoted.metrics.logprocessor.common.table;
 
 import ai.promoted.metrics.logprocessor.common.job.BaseFlinkJob;
+import ai.promoted.metrics.logprocessor.common.job.CompositeFlinkSegment;
 import ai.promoted.metrics.logprocessor.common.job.FlinkSegment;
-import ai.promoted.metrics.logprocessor.common.job.JoinedImpressionSegment;
-import ai.promoted.proto.event.JoinedEvent;
-import com.google.common.collect.ImmutableList;
-import com.google.protobuf.GeneratedMessageV3;
+import ai.promoted.proto.event.AttributedAction;
+import ai.promoted.proto.event.JoinedImpression;
+import com.google.common.collect.ImmutableSet;
 import java.io.Serializable;
-import java.util.List;
-import org.apache.flink.api.common.functions.FilterFunction;
+import java.util.Set;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.table.api.Table;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.apache.flink.types.Row;
-import picocli.CommandLine;
 
 /** A segment for creating */
-public class JoinedEventTableSourceSegment implements FlinkSegment {
-  @CommandLine.Mixin public final JoinedImpressionSegment joinedImpressionSegment;
+public class JoinedEventTableSourceSegment implements CompositeFlinkSegment {
   private final BaseFlinkJob job;
 
   public JoinedEventTableSourceSegment(BaseFlinkJob job) {
     this.job = job;
-    joinedImpressionSegment = new JoinedImpressionSegment(job);
   }
 
   @Override
-  public void validateArgs() {
-    joinedImpressionSegment.validateArgs();
-  }
-
-  @Override
-  public List<Class<? extends GeneratedMessageV3>> getProtoClasses() {
-    return ImmutableList.<Class<? extends GeneratedMessageV3>>builder()
-        .addAll(joinedImpressionSegment.getProtoClasses())
-        .build();
+  public Set<FlinkSegment> getInnerFlinkSegments() {
+    return ImmutableSet.of();
   }
 
   public void createJoinedImpressionTable(
-      StreamTableEnvironment tableEnv, DataStream<JoinedEvent> joinedEvents) {
+      StreamTableEnvironment tableEnv, DataStream<JoinedImpression> joinedImpressions) {
     // TODO - try to move deduplication work to Flink SQL.  TBD because Flink SQL doesn't support
     // the same keep first semantics.
-    DataStream<JoinedEvent> joinedImpressions =
-        job.add(joinedEvents.filter(new IsJoinedImpression()), "filter-joined-impression");
-    joinedImpressions = joinedImpressionSegment.getDeduplicatedJoinedImpression(joinedImpressions);
     DataStream<Row> rows =
         job.add(
             joinedImpressions.map(
@@ -54,18 +40,32 @@ public class JoinedEventTableSourceSegment implements FlinkSegment {
     tableEnv.createTemporaryView("joined_impression", table);
   }
 
-  public static class IsJoinedImpression implements FilterFunction<JoinedEvent>, Serializable {
-    @Override
-    public boolean filter(JoinedEvent joinedEvent) throws Exception {
-      return !joinedEvent.hasAction();
-    }
+  public void createAttributedActionTable(
+      StreamTableEnvironment tableEnv, DataStream<AttributedAction> attributedActions) {
+    // TODO - try to move deduplication work to Flink SQL.  TBD because Flink SQL doesn't support
+    // the same keep first semantics.
+    DataStream<Row> rows =
+        job.add(
+            attributedActions.map(
+                new ToAttributedActionRows(), AttributedActionTable.ROW_TYPE_INFORMATION),
+            "to-attributed-action-row");
+    Table table = tableEnv.fromDataStream(rows, AttributedActionTable.SCHEMA);
+    tableEnv.createTemporaryView("attributed_action", table);
   }
 
   private static class ToJoinedImpressionRows
-      implements MapFunction<JoinedEvent, Row>, Serializable {
+      implements MapFunction<JoinedImpression, Row>, Serializable {
     @Override
-    public Row map(JoinedEvent event) throws Exception {
-      return JoinedImpressionTable.toRow(event);
+    public Row map(JoinedImpression impression) throws Exception {
+      return JoinedImpressionTable.toRow(impression);
+    }
+  }
+
+  private static class ToAttributedActionRows
+      implements MapFunction<AttributedAction, Row>, Serializable {
+    @Override
+    public Row map(AttributedAction action) throws Exception {
+      return AttributedActionTable.toRow(action);
     }
   }
 }

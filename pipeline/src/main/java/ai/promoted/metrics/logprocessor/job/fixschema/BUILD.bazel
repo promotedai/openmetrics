@@ -3,6 +3,7 @@ load("@rules_java//java:defs.bzl", "java_binary", "java_library")
 DEPS = [
     "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/avro",
     "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions",
+    "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/functions/base",
     "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/job",
     "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/common/s3",
     "//pipeline/src/main/java/ai/promoted/metrics/logprocessor/job/fixschema/model:avro",
@@ -19,9 +20,8 @@ DEPS = [
     "@maven_neverlink//:org_apache_flink_flink_file_sink_common",
     "@maven//:org_apache_avro_avro",
     "@maven//:org_apache_flink_flink_avro",
-    "@maven//:org_apache_flink_flink_table_api_java_uber",
-    "@maven//:org_apache_logging_log4j_log4j_api",
-    "@maven//:org_apache_logging_log4j_log4j_core",
+    "@maven_neverlink//:org_apache_flink_flink_table_api_java_uber",
+    "@maven_neverlink//:org_apache_logging_log4j_log4j_api",
 ]
 
 # For tests
@@ -73,5 +73,5 @@ container_image(
     ],
     stamp = True,
     # FLINK_VERSION = this needs updating when we increment the Flink version.
-    symlinks = {"/opt/flink/plugins/s3-fs-hadoop/flink-s3-fs-hadoop-1.16.1.jar": "/opt/flink/opt/flink-s3-fs-hadoop-1.16.1.jar"},
+    symlinks = {"/opt/flink/plugins/s3-fs-hadoop/flink-s3-fs-hadoop-1.17.1.jar": "/opt/flink/opt/flink-s3-fs-hadoop-1.17.1.jar"},
 )

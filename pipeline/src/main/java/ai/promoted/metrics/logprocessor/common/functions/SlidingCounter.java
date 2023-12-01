@@ -1,11 +1,12 @@
 package ai.promoted.metrics.logprocessor.common.functions;
 
 import ai.promoted.metrics.logprocessor.common.counter.WindowAggResult;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableFunction;
+import ai.promoted.metrics.logprocessor.common.queryablestate.KeyedProcessFunctionWithQueryableState;
+import ai.promoted.proto.flinkqueryablestate.MetricsValues;
 import com.google.common.annotations.VisibleForTesting;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -24,19 +25,18 @@ import org.apache.flink.api.common.typeinfo.Types;
 import org.apache.flink.api.java.typeutils.ResultTypeQueryable;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.formats.avro.typeutils.GenericRecordAvroTypeInfo;
-import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
 
 /**
- * Abstract keyed process function that counts T's on a (bucketed) basis using their event
- * watermark. Produces Tuple4 of <KEY, time bucket, count within the bucket, expiry>
+ * Keyed process function that counts T's on a (bucketed) basis using their event watermark.
+ * Produces Tuple4 of <KEY, time bucket, count within the bucket, expiry>
  *
  * @param <KEY> Flink partitioning key that we are counting.
  * @param <T> Object type of the flink stream.
  */
-public abstract class SlidingCounter<KEY, T>
-    extends KeyedProcessFunction<KEY, T, WindowAggResult<KEY>>
+public class SlidingCounter<KEY, T>
+    extends KeyedProcessFunctionWithQueryableState<KEY, T, WindowAggResult<KEY>>
     implements ResultTypeQueryable<WindowAggResult<KEY>> {
   // TODO: generalize to a standalone logging sideoutput class
   /** Type info for logging. */
@@ -59,11 +59,12 @@ public abstract class SlidingCounter<KEY, T>
   public static final Schema LOG_SCHEMA = new Schema.Parser().parse(LOG_SCHEMA_STRING);
   public static final TypeInformation<GenericRecord> LOG_ROW_TYPEINFO =
       new GenericRecordAvroTypeInfo(LOG_SCHEMA);
+
   /** OutputTag to get logging maps in a side channel. */
   public static final OutputTag<GenericRecord> LOGGING_TAG =
       new OutputTag<GenericRecord>("logging", LOG_ROW_TYPEINFO);
 
-  @VisibleForTesting final long emitWindow;
+  @VisibleForTesting protected final long windowSlide;
   private final ChronoUnit bucketUnit;
   private final List<Integer> buckets;
   private final TypeInformation<KEY> keyTypeInfo;
@@ -81,44 +82,45 @@ public abstract class SlidingCounter<KEY, T>
    *
    * @param bucketUnit Granularity of buckets.
    * @param buckets Time buckets to aggregate over. *MUST* have largest bucket first.
-   * @param emitWindow Window to emit events. For example, 4 hrs = 6 updates/day.
+   * @param windowSlide Window slide. For example, 4 hrs = 6 updates/day.
    * @param eventTimeGetter Function to extract event timestamps from input types.
    */
-  @VisibleForTesting
-  SlidingCounter(
+  public SlidingCounter(
+      boolean queryableStateEnabled,
       ChronoUnit bucketUnit,
       List<Integer> buckets,
       TypeInformation<KEY> keyTypeInfo,
-      Duration emitWindow,
+      Duration windowSlide,
       SerializableFunction<T, Long> eventTimeGetter,
       SerializableFunction<T, Long> countGetter,
       boolean sideOutputDebugLogging) {
+    super(queryableStateEnabled);
     this.bucketUnit = bucketUnit;
     this.bucketUnitMillis = bucketUnit.getDuration().toMillis();
     this.buckets = buckets;
     this.maxBucket = Collections.max(buckets);
     this.keyTypeInfo = keyTypeInfo;
-    this.emitWindow = emitWindow.toMillis();
+    this.windowSlide = windowSlide.toMillis();
     this.eventTimeGetter = eventTimeGetter;
     this.countGetter = countGetter;
     this.sideOutputDebugLogging = sideOutputDebugLogging;
   }
 
   @VisibleForTesting
-  static LocalDateTime toDateTime(long millis) {
-    // TODO: This could be costly.  If we need to optimize (and lose easier debugging), we can
-    // stay in timestamp millis domain and truncate to the nearest bucketUnit in millis.
-    return LocalDateTime.ofInstant(Instant.ofEpochMilli(millis), ZoneOffset.UTC);
+  static Instant toDateTime(long millis) {
+    return Instant.ofEpochMilli(millis);
   }
 
-  /**
-   * Returns a window key long for a datetime which needs to be aligned on the end time. For
-   * example, YYYYMMDD (D8), YYYYMMDDHH, YYYYMMDDHHmm, etc.
-   */
-  abstract long toWindowKey(LocalDateTime datetime);
+  /** Returns a key for the counts. Rounds up based on the windowSlide. */
+  @VisibleForTesting
+  long toWindowKey(Instant datetime) {
+    return datetime.toEpochMilli() + windowSlide - (datetime.toEpochMilli() % windowSlide);
+  }
 
-  /** Returns a datetime for a window key long. */
-  abstract LocalDateTime windowDateTime(long windowKey);
+  @VisibleForTesting
+  Instant windowDateTime(long windowKey) {
+    return Instant.ofEpochMilli(windowKey);
+  }
 
   /**
    * Return the expiry TTL in seconds for the redis key.
@@ -134,7 +136,6 @@ public abstract class SlidingCounter<KEY, T>
   @Override
   public void open(Configuration config) throws Exception {
     super.open(config);
-    // PR(Jin) - what's a good backup TTL?
     windowCounts =
         getRuntimeContext()
             .getMapState(new MapStateDescriptor<>("windowCounts", Types.LONG, Types.LONG));
@@ -177,7 +178,7 @@ public abstract class SlidingCounter<KEY, T>
       ctx.output(LOGGING_TAG, logRow);
     }
 
-    // This timer registration is to increment the bucket counts following after the emitWindow.
+    // This timer registration is to increment the bucket counts following after the windowSlide.
     // TODO(when needed): add randomness to the timer to avoid write contention on the window
     // boundaries.
     setSafeTimer(ctx, timestamp, 0);
@@ -192,9 +193,9 @@ public abstract class SlidingCounter<KEY, T>
   private void setSafeTimer(Context ctx, long eventTime, int nBucketDelay) {
     long flinkTime = ctx.timestamp();
     long intended =
-        eventTime - (eventTime % emitWindow) + (nBucketDelay * bucketUnitMillis + emitWindow);
+        eventTime - (eventTime % windowSlide) + (nBucketDelay * bucketUnitMillis + windowSlide);
     if (intended < flinkTime) {
-      intended = flinkTime - (flinkTime % emitWindow) + emitWindow;
+      intended = flinkTime - (flinkTime % windowSlide) + windowSlide;
     }
 
     if (sideOutputDebugLogging) {
@@ -219,10 +220,10 @@ public abstract class SlidingCounter<KEY, T>
 
     HashMap<Integer, Long> bucketSum = newBucketMap();
     ArrayList<Long> toRemove = new ArrayList<>();
-    LocalDateTime timerTime = toDateTime(timestamp);
+    Instant timerTime = toDateTime(timestamp);
     for (Long window : windowCounts.keys()) {
-      LocalDateTime windowEndTime = windowDateTime(window);
-      // Both windowEndTime (exclusive) and timerTime are aligned on emitWindow.
+      Instant windowEndTime = windowDateTime(window);
+      // Both windowEndTime (exclusive) and timerTime are aligned on windowSlide.
       long timeDelta = bucketUnit.between(windowEndTime, timerTime);
       if (timeDelta >= maxBucket) {
         toRemove.add(window);
@@ -259,10 +260,14 @@ public abstract class SlidingCounter<KEY, T>
       ctx.output(LOGGING_TAG, logRow);
     }
 
+    MetricsValues.Builder metricsValuesBuilder = MetricsValues.newBuilder();
     for (int b : bucketSum.keySet()) {
       WindowAggResult<KEY> output =
           new WindowAggResult<>(ctx.getCurrentKey(), b, bucketUnit, bucketSum.get(b), expiry(b));
-
+      metricsValuesBuilder.addLongValues(
+          MetricsValues.LongEntry.newBuilder()
+              .setKey(String.valueOf(b))
+              .setValue(bucketSum.get(b)));
       if (sideOutputDebugLogging) {
         GenericRecord logRow = new GenericData.Record(LOG_SCHEMA);
         logRow.put("class", getClass().getSimpleName());
@@ -274,8 +279,12 @@ public abstract class SlidingCounter<KEY, T>
         ctx.output(LOGGING_TAG, logRow);
       }
 
-      out.collect(output);
+      if (!isQueryableStateEnabled()) {
+        // Don't output result if queryable state is enabled.
+        out.collect(output);
+      }
     }
+    updateOrClearQueryableState(metricsValuesBuilder.build());
 
     for (long key : toRemove) {
       windowCounts.remove(key);

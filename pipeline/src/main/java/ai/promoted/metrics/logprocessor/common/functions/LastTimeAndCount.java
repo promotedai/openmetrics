@@ -1,17 +1,24 @@
 package ai.promoted.metrics.logprocessor.common.functions;
 
 import ai.promoted.metrics.logprocessor.common.counter.LastTimeAggResult;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableFunction;
+import ai.promoted.metrics.logprocessor.common.queryablestate.KeyedProcessFunctionWithQueryableState;
+import ai.promoted.metrics.logprocessor.common.queryablestate.MetricsValuesSerializer;
+import ai.promoted.proto.flinkqueryablestate.MetricsValues;
 import com.google.common.annotations.VisibleForTesting;
+import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.api.common.state.ValueState;
@@ -20,10 +27,13 @@ import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.typeinfo.Types;
 import org.apache.flink.api.java.typeutils.ResultTypeQueryable;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.core.memory.DataInputDeserializer;
+import org.apache.flink.core.memory.DataOutputSerializer;
 import org.apache.flink.formats.avro.typeutils.GenericRecordAvroTypeInfo;
-import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Keyed process function that remembers the last timestamp and counts T's using their event
@@ -33,11 +43,15 @@ import org.apache.flink.util.OutputTag;
  * @param <KEY> Flink partitioning key that we are tracking.
  * @param <T> Object type of the flink stream.
  */
-public class LastTimeAndCount<KEY, T> extends KeyedProcessFunction<KEY, T, LastTimeAggResult<KEY>>
+public class LastTimeAndCount<KEY, T>
+    extends KeyedProcessFunctionWithQueryableState<KEY, T, LastTimeAggResult<KEY>>
     implements ResultTypeQueryable<LastTimeAggResult<KEY>> {
   // TODO: generalize to a standalone logging sideoutput class
+  private static final Logger LOG = LogManager.getLogger(LastTimeAndCount.class);
+
   @VisibleForTesting
   public static final int EXPIRE_TTL_SECONDS = Math.toIntExact(Duration.ofDays(3).toSeconds());
+
   /** Type info for logging. */
   private static final String LOG_SCHEMA_STRING =
       "{ \"type\": \"record\","
@@ -56,6 +70,7 @@ public class LastTimeAndCount<KEY, T> extends KeyedProcessFunction<KEY, T, LastT
   public static final Schema LOG_SCHEMA = new Schema.Parser().parse(LOG_SCHEMA_STRING);
   public static final TypeInformation<GenericRecord> LOG_ROW_TYPEINFO =
       new GenericRecordAvroTypeInfo(LOG_SCHEMA);
+
   /** OutputTag to get logging maps in a side channel. */
   public static final OutputTag<GenericRecord> LOGGING_TAG =
       new OutputTag<GenericRecord>("logging", LOG_ROW_TYPEINFO);
@@ -83,11 +98,13 @@ public class LastTimeAndCount<KEY, T> extends KeyedProcessFunction<KEY, T, LastT
    * @param ttl This is how (roughly) how long we'll keep track of the events.
    */
   public LastTimeAndCount(
+      boolean queryableStateEnabled,
       TypeInformation<KEY> keyTypeInfo,
       SerializableFunction<T, Long> eventTimeGetter,
       Duration ttl,
       boolean sideOutputDebugLogging) {
     this(
+        queryableStateEnabled,
         keyTypeInfo,
         eventTimeGetter,
         ttl,
@@ -97,11 +114,13 @@ public class LastTimeAndCount<KEY, T> extends KeyedProcessFunction<KEY, T, LastT
 
   @VisibleForTesting
   public LastTimeAndCount(
+      boolean queryableStateEnabled,
       TypeInformation<KEY> keyTypeInfo,
       SerializableFunction<T, Long> eventTimeGetter,
       Duration ttl,
       boolean sideOutputDebugLogging,
       SerializableFunction<Integer, Long> hashToRandomTimerOffset) {
+    super(queryableStateEnabled);
     this.keyTypeInfo = keyTypeInfo;
     this.eventTimeGetter = eventTimeGetter;
     this.ttlDays = ttl.toDays();
@@ -150,7 +169,11 @@ public class LastTimeAndCount<KEY, T> extends KeyedProcessFunction<KEY, T, LastT
     // This is because the flink timestamp can be delayed by the compounded inference delay
     // due to inferred refs.
     long timestamp = eventTimeGetter.apply(in);
-    lastTimestamp.update(timestamp);
+
+    // Last seen timestamp should always increase
+    if (null == lastTimestamp.value() || timestamp > lastTimestamp.value()) {
+      lastTimestamp.update(timestamp);
+    }
 
     Instant day = Instant.ofEpochMilli(timestamp).truncatedTo(ChronoUnit.DAYS);
     Long count = dayCounts.get(day);
@@ -273,12 +296,24 @@ public class LastTimeAndCount<KEY, T> extends KeyedProcessFunction<KEY, T, LastT
           StreamSupport.stream(dayCounts.entries().spliterator(), false)
               .collect(Collectors.toMap(e -> e.getKey().toString(), Map.Entry::getValue)));
       logRow.put("message", output.toString());
-      logRow.put("removed", toRemove);
+      logRow.put("removed", toRemove.stream().map(i -> i.toString()).collect(Collectors.toList()));
       ctx.output(LOGGING_TAG, logRow);
     }
 
     if (output.f1 != null) {
-      out.collect(output);
+      if (!isQueryableStateEnabled()) {
+        out.collect(output);
+      }
+      MetricsValues.Builder metricsValuesBuilder = MetricsValues.newBuilder();
+      metricsValuesBuilder
+          .addLongValues(
+              MetricsValues.LongEntry.newBuilder()
+                  .setKey("lastTimestamp")
+                  .setValue(lastTimestamp.value())
+                  .build())
+          .addLongValues(
+              MetricsValues.LongEntry.newBuilder().setKey("count").setValue(count).build());
+      updateOrClearQueryableState(metricsValuesBuilder.build());
     } else if (count != 0) {
       Map<String, Long> strCounts =
           StreamSupport.stream(dayCounts.entries().spliterator(), false)
@@ -295,5 +330,18 @@ public class LastTimeAndCount<KEY, T> extends KeyedProcessFunction<KEY, T, LastT
     if (dayCounts.isEmpty()) {
       lastTimestamp.clear();
     }
+  }
+
+  /** For queryable state debugging */
+  private void queryRocksdb(KEY key) throws IOException, InterruptedException {
+    DataOutputSerializer dataOutputView = new DataOutputSerializer(1024);
+    keyTypeInfo.createSerializer(new ExecutionConfig()).serialize(key, dataOutputView);
+    byte[] keyBytes = dataOutputView.getSharedBuffer();
+    LOG.info("Key = " + key + "\t KeyArray = " + Arrays.toString(keyBytes));
+    byte[] result = rocksdbStateAccesser.query(keyBytes);
+    DataInputDeserializer dataInputView = new DataInputDeserializer();
+    dataInputView.setBuffer(result);
+    LOG.info("Result = " + new MetricsValuesSerializer().deserialize(dataInputView));
+    Thread.sleep(1000);
   }
 }

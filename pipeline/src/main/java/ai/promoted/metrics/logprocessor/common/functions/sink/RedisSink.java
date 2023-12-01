@@ -1,8 +1,14 @@
 package ai.promoted.metrics.logprocessor.common.functions.sink;
 
-import com.google.auto.value.AutoValue;
+import static io.lettuce.core.protocol.CommandType.ZADD;
+
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableBiFunction;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableConsumer;
+import ai.promoted.metrics.logprocessor.common.functions.base.SerializableSupplier;
+import ai.promoted.metrics.logprocessor.common.functions.sink.RedisSink.RedisSinkCommand;
 import io.lettuce.core.AbstractRedisClient;
 import io.lettuce.core.FlushMode;
+import io.lettuce.core.RedisFuture;
 import io.lettuce.core.api.StatefulConnection;
 import io.lettuce.core.cluster.ClusterClientOptions;
 import io.lettuce.core.cluster.ClusterTopologyRefreshOptions;
@@ -11,18 +17,29 @@ import io.lettuce.core.cluster.api.StatefulRedisClusterConnection;
 import io.lettuce.core.cluster.api.async.RedisClusterAsyncCommands;
 import io.lettuce.core.cluster.api.sync.RedisClusterCommands;
 import io.lettuce.core.protocol.CommandType;
+import java.util.List;
 import java.util.StringJoiner;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
-import javax.annotation.Nullable;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.tuple.Tuple;
 import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.api.java.tuple.Tuple5;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.runtime.state.FunctionInitializationContext;
+import org.apache.flink.runtime.state.FunctionSnapshotContext;
+import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-public class RedisSink extends RichSinkFunction<RedisSink.Command> {
+public class RedisSink extends RichSinkFunction<RedisSinkCommand> implements CheckpointedFunction {
+  public static final int REDIS_WAIT_TIMEOUT = 60000; // 1 min
   // This is the ASCII unit separator (0x1f) character.
   public static final String JOIN_CHAR = Character.toString((char) 31);
   private static final Logger LOGGER = LogManager.getLogger(RedisSink.class);
@@ -30,39 +47,36 @@ public class RedisSink extends RichSinkFunction<RedisSink.Command> {
   protected final String uri;
   protected AbstractRedisClient client;
   protected StatefulConnection<String, String> connection;
+  //  protected AtomicInteger nRemainingAsync = new AtomicInteger(0);
   protected AtomicInteger nRemainingAsync = new AtomicInteger(0);
+  protected List<RedisSinkCommand> metadataCommands;
+  private ScheduledExecutorService redisFlushService;
+  private volatile boolean shouldFail = false;
 
   /**
-   * Constructs a redis sink hitting a redis cluster. Specify a comma separated URI list:
-   * 'redis://host1:6399,host2:6399,...'
+   * Constructs a redis sink hitting a redis cluster
+   *
+   * @param uri a comma separated URI list: 'redis://host1:6399,host2:6399,...'
+   * @param metadataCommands the metadata that needs to be written to Redis in each checkpoint
    */
-  public RedisSink(String uri) {
+  public RedisSink(String uri, List<RedisSinkCommand> metadataCommands) {
     this.uri = uri;
+    this.metadataCommands = metadataCommands;
   }
 
-  public static Command hset(String key, String field, String value, long ttl) {
-    return RedisSink.Command.builder()
-        .setCommand(CommandType.HSET)
-        .setKey(key)
-        .setField(field)
-        .setValue(value)
-        .setTtl(ttl)
-        .build();
+  public static RedisSinkCommand hset(String key, String field, String value, long ttl) {
+    return RedisSinkCommand.hset(key, field, value, ttl);
   }
 
-  public static Command hdel(String key, String field) {
-    return RedisSink.Command.builder()
-        .setCommand(CommandType.HDEL)
-        .setKey(key)
-        .setField(field)
-        .build();
+  public static RedisSinkCommand hdel(String key, String field) {
+    return RedisSinkCommand.hdel(key, field);
   }
 
-  public static Command hdel(Tuple key, Tuple field) {
+  public static RedisSinkCommand hdel(Tuple key, Tuple field) {
     return hdel(tupleJoin(key), tupleJoin(field));
   }
 
-  public static Command hsetOrDel(Tuple key, Tuple field, Long value, long ttl) {
+  public static RedisSinkCommand hsetOrDel(Tuple key, Tuple field, Long value, long ttl) {
     if (value != 0) {
       return hset(key, field, value, ttl);
     } else {
@@ -70,24 +84,24 @@ public class RedisSink extends RichSinkFunction<RedisSink.Command> {
     }
   }
 
-  public static Command hset(Tuple key, Tuple field, String value, long ttl) {
+  public static RedisSinkCommand hset(Tuple key, Tuple field, String value, long ttl) {
     return hset(tupleJoin(key), tupleJoin(field), value, ttl);
   }
 
-  public static Command hset(Tuple key, Tuple field, long value, long ttl) {
+  public static RedisSinkCommand hset(Tuple key, Tuple field, long value, long ttl) {
     return hset(key, field, Long.toString(value), ttl);
   }
 
-  public static Command hset(Tuple key, Tuple field, Tuple value, long ttl) {
+  public static RedisSinkCommand hset(Tuple key, Tuple field, Tuple value, long ttl) {
     return hset(tupleJoin(key), tupleJoin(field), tupleJoin(value), ttl);
   }
 
-  public static Command flush() {
-    return RedisSink.Command.builder().setCommand(CommandType.FLUSHDB).build();
+  public static RedisSinkCommand flush() {
+    return RedisSinkCommand.forCommandType(CommandType.FLUSHDB);
   }
 
-  public static Command ping() {
-    return RedisSink.Command.builder().setCommand(CommandType.PING).build();
+  public static RedisSinkCommand ping() {
+    return RedisSinkCommand.forCommandType(CommandType.PING);
   }
 
   /** Joins a Flink Tuple using a field delimiter (usually, 0x1f). */
@@ -108,8 +122,6 @@ public class RedisSink extends RichSinkFunction<RedisSink.Command> {
     RedisClusterClient clusterClient = RedisClusterClient.create(uri);
     clusterClient.setOptions(
         ClusterClientOptions.builder()
-            // We want to loudly fail in order to alert.
-            .disconnectedBehavior(ClusterClientOptions.DisconnectedBehavior.REJECT_COMMANDS)
             // https://github.com/lettuce-io/lettuce-core/issues/339
             // TODO: enable periodic if we hit any edge cases.
             .topologyRefreshOptions(
@@ -121,24 +133,62 @@ public class RedisSink extends RichSinkFunction<RedisSink.Command> {
 
   @Override
   public void open(Configuration config) throws Exception {
-    super.open(config);
     initConnection();
+    connection.setAutoFlushCommands(false);
+    redisFlushService = Executors.newSingleThreadScheduledExecutor();
+    redisFlushService.scheduleAtFixedRate(() -> connection.flushCommands(), 0, 1, TimeUnit.SECONDS);
+    if (getRuntimeContext().getIndexOfThisSubtask() == 0) {
+      writeMetadata();
+      waitForFlush(REDIS_WAIT_TIMEOUT);
+    }
   }
 
-  public void closeConnection(boolean waitForAsync) throws InterruptedException {
-    int nSleeps = 20; // * 500ms = 10s max busy waiting
-    while (waitForAsync && nRemainingAsync.get() > 0 && nSleeps > 0) {
-      Thread.sleep(500);
-      nSleeps--;
+  public void closeConnection(boolean waitForFlush) {
+    if (waitForFlush) {
+      waitForFlush(REDIS_WAIT_TIMEOUT);
     }
-    connection.close();
-    client.shutdown();
+    if (null != redisFlushService) {
+      redisFlushService.shutdown();
+    }
+    if (null != connection) {
+      connection.close();
+    }
+    if (null != client) {
+      client.shutdown();
+    }
+  }
+
+  private void waitForFlush(long timeout) {
+    final ExecutorService executor = Executors.newSingleThreadExecutor();
+    try {
+      executor
+          .submit(
+              () -> {
+                while (nRemainingAsync.get() > 0) {
+                  LOGGER.warn(
+                      String.format(
+                          "Waiting for %s Redis commands to flush.", nRemainingAsync.get()));
+                  try {
+                    Thread.sleep(100);
+                  } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                  }
+                }
+              })
+          .get(timeout, TimeUnit.MILLISECONDS);
+    } catch (InterruptedException | ExecutionException | TimeoutException e) {
+      LOGGER.error("Error while waiting for Redis commands to flush", e);
+      throw new RuntimeException(e);
+    } finally {
+      if (!executor.isShutdown()) {
+        executor.shutdown();
+      }
+    }
   }
 
   @Override
   public void close() throws Exception {
-    closeConnection(false);
-    super.close();
+    closeConnection(true);
   }
 
   protected RedisClusterCommands<String, String> syncCommands() {
@@ -149,8 +199,8 @@ public class RedisSink extends RichSinkFunction<RedisSink.Command> {
     return ((StatefulRedisClusterConnection<String, String>) connection).async();
   }
 
-  public void sendCommand(Command in) {
-    switch (in.command()) {
+  public void sendCommand(RedisSinkCommand in) {
+    switch (in.getCommand()) {
       case FLUSHDB:
         LOGGER.warn("flushing redis instance!");
         syncCommands().flushdb(FlushMode.SYNC);
@@ -165,134 +215,227 @@ public class RedisSink extends RichSinkFunction<RedisSink.Command> {
     }
   }
 
-  public void sendAsyncCommand(Command in) {
+  public void sendAsyncCommand(RedisSinkCommand in) {
+    if (shouldFail) {
+      throw new RuntimeException(
+          "Some commands are failed to be flushed. Will trigger a job failover to retry...");
+    }
     // We only will log exceptions and never block (sync on the response futures).
     RedisClusterAsyncCommands<String, String> async = asyncCommands();
-    async.setAutoFlushCommands(false);
-
-    switch (in.command()) {
-      case HINCRBY:
-        nRemainingAsync.incrementAndGet();
-        if (in.value() instanceof Long) {
-          async
-              .hincrby(in.key(), in.field(), (Long) in.value())
-              .exceptionally(
-                  e -> {
-                    LOGGER.error("redis failure for command {}: {}", in, e);
-                    return -1L;
-                  })
-              .thenRun(() -> nRemainingAsync.decrementAndGet());
-        } else {
-          LOGGER.error("illegal Long value for command {}", in);
-        }
-        break;
+    nRemainingAsync.incrementAndGet();
+    //    RedisFuture<?> commandFuture;
+    SerializableSupplier<RedisFuture<?>> futureSupplier;
+    switch (in.getCommand()) {
       case HSET:
-        nRemainingAsync.incrementAndGet();
-        if (in.value() instanceof String) {
-          async
-              .hset(in.key(), in.field(), (String) in.value())
-              .exceptionally(
-                  e -> {
-                    LOGGER.error("redis failure for command {}: {}", in, e);
-                    return false;
-                  })
-              .thenRun(() -> nRemainingAsync.decrementAndGet());
-        } else {
-          LOGGER.error("illegal String value for command {}", in);
-        }
+        futureSupplier = () -> async.hset(in.getKey(), in.getField(), in.getValue());
         break;
       case HDEL:
-        nRemainingAsync.incrementAndGet();
-        if (in.value() instanceof String) {
-          async
-              .hdel(in.key(), in.field())
-              .exceptionally(
-                  e -> {
-                    LOGGER.error("redis failure for command {}: {}", in, e);
-                    return 0L;
-                  })
-              .thenRun(() -> nRemainingAsync.decrementAndGet());
-        } else {
-          LOGGER.error("illegal String value for command {}", in);
-        }
+        assert (null == in.getValue()); // The value must be null for HDEL.
+        futureSupplier = () -> async.hdel(in.getKey(), in.getField());
+        break;
+      case ZADD:
+        futureSupplier =
+            () -> async.zadd(in.getKey(), null, Double.parseDouble(in.getField()), in.getValue());
+        break;
+      case ZREM:
+        futureSupplier = () -> async.zrem(in.getKey(), in.getValue());
         break;
       default:
-        throw new IllegalArgumentException("unrecognized RedisSink.Command: " + in);
+        throw new IllegalArgumentException("Unrecognized RedisSinkCommand: " + in);
     }
+    futureSupplier
+        .get()
+        .handle(
+            (SerializableBiFunction<Object, Throwable, Object>)
+                (o, throwable) -> {
+                  if (null == throwable) {
+                    nRemainingAsync.decrementAndGet();
+                    return o;
+                  } else {
+                    LOGGER.error(
+                        "redis failure for command {}: {}\n Will retry the same command synchronously...",
+                        in,
+                        throwable);
+                    try {
+                      // Retry once by running the command synchronously.
+                      Object result = futureSupplier.get().get();
+                      nRemainingAsync.decrementAndGet();
+                      return result;
+                    } catch (InterruptedException | ExecutionException e) {
+                      LOGGER.error("Error while retrying the command {}: {}", in, e);
+                      return null;
+                    }
+                  }
+                })
+        .thenAccept(
+            (SerializableConsumer<Object>)
+                result -> {
+                  if (null == result) { // Null means a failure.
+                    shouldFail = true;
+                  }
+                });
+
     // Set expiry TTL if positive.
-    if (in.ttl() > 0) {
+    if (in.getTtl() > 0) {
       nRemainingAsync.incrementAndGet();
       async
-          .expire(in.key(), in.ttl())
-          .exceptionally(
-              e -> {
-                LOGGER.error("redis failure for expire ({}, {}): {}", in.key(), in.ttl(), e);
-                return false;
-              })
-          .thenRun(() -> nRemainingAsync.decrementAndGet());
+          .expire(in.getKey(), in.getTtl())
+          .handle(
+              (SerializableBiFunction<Object, Throwable, Object>)
+                  (o, throwable) -> {
+                    if (null == throwable) {
+                      nRemainingAsync.decrementAndGet();
+                      return o;
+                    } else {
+                      LOGGER.error(
+                          "redis failure for expire ({}, {}): {}. \n Will retry it synchronously...",
+                          in.getKey(),
+                          in.getTtl(),
+                          throwable);
+                      try {
+                        // Retry once by running expire synchronously.
+                        Boolean result = async.expire(in.getKey(), in.getTtl()).get();
+                        nRemainingAsync.decrementAndGet();
+                        return result;
+                      } catch (InterruptedException | ExecutionException e) {
+                        LOGGER.error(
+                            "Error while retrying ({}, {}): {}", in.getKey(), in.getTtl(), e);
+                        return null;
+                      }
+                    }
+                  })
+          .thenAccept(
+              (SerializableConsumer<Object>)
+                  result -> {
+                    if (null == result) { // Null means a failure.
+                      shouldFail = true;
+                    }
+                  });
+      ;
       // Clear expiry if negative.
-    } else if (in.ttl() < 0) {
+    } else if (in.getTtl() < 0) {
       nRemainingAsync.incrementAndGet();
       async
-          .persist(in.key())
-          .exceptionally(
-              e -> {
-                LOGGER.error("redis failure for persist ({}): {}", in.key(), e);
-                return false;
-              })
-          .thenRun(() -> nRemainingAsync.decrementAndGet());
+          .persist(in.getKey())
+          .handle(
+              (SerializableBiFunction<Object, Throwable, Object>)
+                  (o, throwable) -> {
+                    if (null == throwable) {
+                      nRemainingAsync.decrementAndGet();
+                      return o;
+                    } else {
+                      LOGGER.error(
+                          "redis failure for persist ({}): {}. \n Will retry it synchronously...",
+                          in.getKey(),
+                          throwable);
+                      try {
+                        // Retry once more by running persist synchronously.
+                        Boolean result = async.persist(in.getKey()).get();
+                        nRemainingAsync.decrementAndGet();
+                        return result;
+                      } catch (InterruptedException | ExecutionException e) {
+                        LOGGER.error("Error while retrying persist ({}): {}", in.getKey(), e);
+                        return null;
+                      }
+                    }
+                  })
+          .thenAccept(
+              (SerializableConsumer<Object>)
+                  result -> {
+                    if (null == result) { // Null means a failure.
+                      shouldFail = true;
+                    }
+                  });
+      ;
     } // else 0 ttl means don't mess with it!
-    async.flushCommands();
   }
 
   @Override
-  public void invoke(Command in, Context context) throws Exception {
-    super.invoke(in, context);
+  public void invoke(RedisSinkCommand in, Context context) throws Exception {
     // Only support async operations from within Flink.
     sendAsyncCommand(in);
   }
 
-  // TODO: use lettuce's Command directly.
-  @AutoValue
-  public abstract static class Command {
-    public static KeySelector<Command, Tuple2<String, String>> REDIS_HASH_KEY =
+  @Override
+  public void snapshotState(FunctionSnapshotContext functionSnapshotContext) {
+    if (getRuntimeContext().getIndexOfThisSubtask() == 0) {
+      writeMetadata();
+    }
+    waitForFlush(REDIS_WAIT_TIMEOUT);
+  }
+
+  @Override
+  public void initializeState(FunctionInitializationContext functionInitializationContext) {
+    // nothing to do
+  }
+
+  private void writeMetadata() {
+    if (null != metadataCommands) {
+      for (RedisSinkCommand cmd : metadataCommands) {
+        sendCommand(cmd);
+      }
+    }
+  }
+
+  public static class RedisSinkCommand extends Tuple5<CommandType, String, String, String, Long> {
+
+    public static KeySelector<RedisSinkCommand, Tuple2<String, String>> REDIS_HASH_KEY =
         new KeySelector<>() {
           @Override
-          public Tuple2<String, String> getKey(Command in) {
-            return Tuple2.of(in.key(), in.field());
+          public Tuple2<String, String> getKey(RedisSinkCommand in) {
+            return Tuple2.of(in.getKey(), in.getField());
           }
         };
 
-    static Builder builder() {
-      return new AutoValue_RedisSink_Command.Builder().setTtl(-1);
+    // This is for Flink serialization
+    public RedisSinkCommand() {
+      super();
     }
 
-    public abstract CommandType command();
+    private RedisSinkCommand(
+        CommandType commandType, String key, String field, String value, Long ttl) {
+      super(commandType, key, field, value, ttl);
+    }
 
-    @Nullable
-    public abstract String key();
+    public static RedisSinkCommand zadd(String key, String value, long score) {
+      // TODO More fields in RedisSinkCommand
+      return new RedisSinkCommand(ZADD, key, String.valueOf(score), value, 0L);
+    }
 
-    @Nullable
-    public abstract String field();
+    public static RedisSinkCommand zrem(String key, String value) {
+      return new RedisSinkCommand(CommandType.ZREM, key, null, value, 0L);
+    }
 
-    @Nullable
-    public abstract Object value();
+    public static RedisSinkCommand hset(String key, String field, String value, Long ttl) {
+      return new RedisSinkCommand(CommandType.HSET, key, field, value, ttl);
+    }
 
-    public abstract long ttl();
+    public static RedisSinkCommand hdel(String key, String field) {
+      return new RedisSinkCommand(CommandType.HDEL, key, field, null, -1L);
+    }
 
-    @AutoValue.Builder
-    abstract static class Builder {
-      abstract Builder setCommand(CommandType cmd);
+    public static RedisSinkCommand forCommandType(CommandType commandType) {
+      return new RedisSinkCommand(commandType, null, null, null, -1L);
+    }
 
-      abstract Builder setKey(String key);
+    public CommandType getCommand() {
+      return f0;
+    }
 
-      abstract Builder setField(String field);
+    public String getKey() {
+      return f1;
+    }
 
-      abstract Builder setValue(Object value);
+    public String getField() {
+      return f2;
+    }
 
-      abstract Builder setTtl(long ttl);
+    public String getValue() {
+      return f3;
+    }
 
-      abstract Command build();
+    public Long getTtl() {
+      return f4;
     }
   }
 }

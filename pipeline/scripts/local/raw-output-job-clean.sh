@@ -3,7 +3,7 @@
 source "$(dirname "$0")/../../../config/config.sh"
 
 printf "Deleting Flink RawOutputJob..."
-kubectl delete --namespace $LOCAL_K8S_NAMESPACE -f $PROMOTED_DIR/metrics/pipeline/kubernetes/local/raw-output-job.yaml || true
+kubectl delete -k kubernetes/_envs/prm/raw-output/local/blue
 printf "Done!\n"
 
 printf "Deleting Flink RawOutputJob jobs..."

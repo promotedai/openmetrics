@@ -45,18 +45,25 @@ public final class CsvRowDataBulkWriter implements BulkWriter<RowData> {
   private static final long serialVersionUID = 1L;
 
   private final FSDataOutputStream stream;
+
   /** Logical row type describing the input CSV data. */
   private final RowType rowType;
+
   /** Runtime instance that performs the actual work. */
   private final PromotedRowDataToCsvConverter runtimeConverter;
+
   /** CsvMapper used to write {@link JsonNode} into bytes. */
   private final CsvMapper csvMapper;
+
   /** Schema describing the input CSV data. */
   private final CsvSchema csvSchema;
+
   /** Object writer used to write rows. It is configured by {@link CsvSchema}. */
   private final ObjectWriter objectWriter;
+
   /** This writer is used for the first row to include a header. */
   private final ObjectWriter firstObjectWriter;
+
   /** Reusable object node. */
   private final transient ObjectNode root;
 
